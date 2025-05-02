@@ -8,23 +8,12 @@ const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, DEBUG } = process
 
 
 const sendMessage = async (to, text) => {
-  console.log("sendMessage", to, text);
   const req = {
     messaging_product: "whatsapp",
     to,
     text: { body: text },
   }
   try {
-    !!DEBUG && console.log("request",
-      `https://graph.facebook.com/v20.0/${PHONE_ID}/messages`,
-      req,
-      {
-        headers: {
-          Authorization: `Bearer ${GRAPH_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
     const response = await axios.post(
       `https://graph.facebook.com/v20.0/${PHONE_ID}/messages`,
       req,
@@ -35,7 +24,6 @@ const sendMessage = async (to, text) => {
         },
       }
     );
-    !!DEBUG && console.log("response", response);
     if (response.status != 200) {
       return {
         success: false,
@@ -60,7 +48,7 @@ const sendMessage = async (to, text) => {
 
 async function generateRequest(body) {
   try {
-    const response = await axios.post('http://192.168.1.6:3000/generate',
+    const response = await axios.post('http://localhost:8001/generate',
       body,
       {
         headers: {
@@ -70,7 +58,6 @@ async function generateRequest(body) {
       }
     );
 
-    console.log("[response]", response.data)
     return response.data;
   } catch (error) {
     console.error('Error:', error);
@@ -79,7 +66,6 @@ async function generateRequest(body) {
 
 
 app.post("/webhook", async (req, res) => {
-  console.log("[BODY] ", req.body);
   const entry = req.body.entry[0];
   const changes = entry.changes[0];
   const value = changes.value;
@@ -92,14 +78,14 @@ app.post("/webhook", async (req, res) => {
       // message: message.text.value
     });
     await sendMessage(message.from, res.signedUrl)
+    console.log("message sent", res.signedUrl)
   }
-
   res.sendStatus(200);
 });
 
 // accepts GET requests at the /webhook endpoint. You need this URL to setup webhook initially.
 // info on verification request payload: https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests
-app.get("/generate", (req, res) => {
+app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
