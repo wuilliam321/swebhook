@@ -4,7 +4,7 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, DEBUG } = process.env;
+const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, DEBUG, GENERATOR_URL } = process.env;
 
 
 const sendMessage = async (to, text) => {
@@ -48,7 +48,7 @@ const sendMessage = async (to, text) => {
 
 async function generateRequest(body) {
   try {
-    const response = await axios.post('http://localhost:8001/generate',
+    const response = await axios.post(GENERATOR_URL + '/generate',
       body,
       {
         headers: {
@@ -71,14 +71,15 @@ app.post("/webhook", async (req, res) => {
   const value = changes.value;
   const message = value.messages && value.messages[0];
 
-  if (message) {
+  console.log('req', JSON.stringify(req.body));
+
+  if (message && message.text && message.text.body) {
     const res = await generateRequest({
       username: req.body.entry[0].id,
-      message: "prueba",
-      // message: message.text.value
+      message: message.text.body
     });
     await sendMessage(message.from, res.signedUrl)
-    console.log("message sent", res.signedUrl)
+    console.log("sent", message.text.body, "=>", res.signedUrl)
   }
   res.sendStatus(200);
 });
