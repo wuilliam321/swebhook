@@ -1,5 +1,6 @@
 const express = require("express");
 const axios = require('axios');
+const { exec } = require('child_process');
 
 const app = express();
 app.use(express.json());
@@ -64,6 +65,28 @@ async function generateRequest(body) {
   }
 }
 
+function runCommand(res, cmd) {
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Error: ${error.message}`);
+        return;
+      }
+      if (stderr) {
+        console.error(`stderr: ${stderr}`);
+        return;
+      }
+      console.log(`stdout: ${stdout}`);
+    });
+}
+
+app.post("/chat", async (req, res) => {
+    console.log("CHAT req", req["body"]);
+    runCommand(res, '/home/wuilliam/proyectos/ai-financial/.venv/bin/python /home/wuilliam/proyectos/ai-financial/test_zsoft.py --mode=stdin --spending="' + req["body"]["message"]+ '"')
+      res.send({
+          "response": "en breve quedara registrado",
+          "context_id": req["body"].context_id
+      });
+})
 
 app.post("/webhook", async (req, res) => {
   const entry = req.body.entry[0];
