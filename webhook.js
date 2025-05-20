@@ -5,9 +5,9 @@ const { exec } = require('child_process');
 const app = express();
 app.use(express.json());
 
-const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, DEBUG, GENERATOR_URL, TELEGRAM_TOKEN } = process.env;
+const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, GENERATOR_URL, TELEGRAM_TOKEN } = process.env;
 
-const sendMessage = async (to, text) => {
+const sendFBMessage = async (to, text) => {
   const req = {
     messaging_product: "whatsapp",
     to,
@@ -65,24 +65,24 @@ async function generateRequest(body) {
 }
 
 function runCommand(res, cmd) {
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Error: ${error.message}`);
-        return;
-      }
-      if (stderr) {
-        console.error(`stderr: ${stderr}`);
-        return;
-      }
-      console.log(`stdout: ${stdout}`);
-    });
+  exec(cmd, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Error: ${error.message}`);
+      return;
+    }
+    if (stderr) {
+      console.error(`stderr: ${stderr}`);
+      return;
+    }
+    console.log(`stdout: ${stdout}`);
+  });
 }
 
-function sendTelegram(chatId, message) {
-    axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-      chat_id: chatId,
-      text: message
-    })
+function sendTelegramMessage(chatId, message) {
+  axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+    chat_id: chatId,
+    text: message
+  })
     .then(response => {
       console.log(`Mensaje "${message}" enviado con éxito`);
     })
@@ -91,43 +91,42 @@ function sendTelegram(chatId, message) {
     });
 }
 
-function runCommandAsync(chatId, onSuccessMsg, messageText) {
-    const cmd = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python /home/wuilliam/proyectos/ai-financial/test_zsoft.py --mode=stdin --spending="' + messageText + '"'
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Error: ${error.message}`);
-        sendTelegram(chatId, `ups error for: "${message}"`)
-        return;
-      }
-      if (stderr) {
-        console.error(`stderr: ${stderr}`);
-        sendTelegram(chatId, `ups stderr for: "${message}"`)
-        return;
-      }
-      console.log(`stdout: ${stdout}`);
-      sendTelegram(chatId, onSuccessMsg)
-    });
+function runCommandAsync(chatId, messageText) {
+  const cmd = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python /home/wuilliam/proyectos/ai-financial/test_zsoft.py --mode=stdin --spending="' + messageText + '"'
+  exec(cmd, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Error: ${error.message}`);
+      sendTelegramMessage(chatId, `❌ Error: "${messageText}"`)
+      return;
+    }
+    if (stderr) {
+      console.error(`stderr: ${stderr}`);
+      sendTelegramMessage(chatId, `⚠️ stderr: "${messageText}"`)
+      return;
+    }
+    console.log(`stdout: ${stdout}`);
+    sendTelegramMessage(chatId, `✅ Gasto registrado con éxito! 💰`)
+  });
 }
 
 app.post("/telegram", async (req, res) => {
-    // Extraer la información relevante del mensaje
-    const chatId = req.body.message.chat.id;
-    const messageText = req.body.message.text;
+  const chatId = req.body.message.chat.id;
+  const messageText = req.body.message.text;
 
-    console.log("CHAT req", messageText);
-    sendTelegram(chatId, "en breve te aviso cuando quede registrado el gasto")
-    const onSuccessMsg = "gasto registrado con exito"
-    runCommandAsync(chatId, onSuccessMsg, messageText)
-    res.status(200).send('OK');
+  console.log("CHAT req", messageText);
+
+  sendTelegramMessage(chatId, `⏳ En breve te aviso cuando quede registrado el gasto ✨`)
+  runCommandAsync(chatId, messageText)
+  res.status(200).send('OK');
 })
 
 app.post("/chat", async (req, res) => {
-    console.log("CHAT req", req["body"]);
-    runCommand(res, '/home/wuilliam/proyectos/ai-financial/.venv/bin/python /home/wuilliam/proyectos/ai-financial/test_zsoft.py --mode=stdin --spending="' + req["body"]["message"]+ '"')
-      res.send({
-          "response": "en breve quedara registrado",
-          "context_id": req["body"].context_id
-      });
+  console.log("CHAT req", req["body"]);
+  runCommand(res, '/home/wuilliam/proyectos/ai-financial/.venv/bin/python /home/wuilliam/proyectos/ai-financial/test_zsoft.py --mode=stdin --spending="' + req["body"]["message"] + '"')
+  res.send({
+    "response": "en breve quedara registrado",
+    "context_id": req["body"].context_id
+  });
 })
 
 app.post("/webhook", async (req, res) => {
@@ -143,7 +142,7 @@ app.post("/webhook", async (req, res) => {
       username: req.body.entry[0].id,
       message: message.text.body
     });
-    await sendMessage(message.from, res.signedUrl)
+    await sendFBMessage(message.from, res.signedUrl)
     console.log("sent", message.text.body, "=>", res.signedUrl)
   }
   res.sendStatus(200);
