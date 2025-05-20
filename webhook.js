@@ -108,6 +108,7 @@ function runCommandAsync(chatId, messageText) {
     sendTelegramMessage(chatId, `✅ Gasto registrado con éxito! 💰`)
   });
 }
+const chatStates = {};
 
 app.post("/telegram", async (req, res) => {
   const chatId = req.body.message.chat.id;
@@ -115,8 +116,23 @@ app.post("/telegram", async (req, res) => {
 
   console.log("CHAT req", messageText);
 
-  sendTelegramMessage(chatId, `⏳ En breve te aviso cuando quede registrado el gasto ✨`)
-  runCommandAsync(chatId, messageText)
+  if (messageText === "/gasto") {
+    chatStates[chatId] = "WAITING_FOR_AMOUNT";
+    sendTelegramMessage(chatId, "💰 ¿Cuál es el monto del gasto?");
+    res.status(200).send('OK');
+    return;
+  }
+
+  if (chatStates[chatId] === "WAITING_FOR_AMOUNT") {
+    delete chatStates[chatId];
+    sendTelegramMessage(chatId, `⏳ En breve te aviso cuando quede registrado el gasto ✨`)
+    runCommandAsync(chatId, messageText)
+    res.status(200).send('OK');
+    return;
+  }
+
+  console.log("nothing to do for", messageText);
+
   res.status(200).send('OK');
 })
 
