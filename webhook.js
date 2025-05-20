@@ -118,7 +118,7 @@ app.post("/telegram", async (req, res) => {
 
   if (messageText === "/gasto") {
     chatStates[chatId] = "WAITING_FOR_AMOUNT";
-    sendTelegramMessage(chatId, "💰 ¿Cuál es el monto del gasto?");
+    sendTelegramMessage(chatId, "💰 ¿Cuánto gastaste y en qué?");
     res.status(200).send('OK');
     return;
   }
