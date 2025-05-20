@@ -5,8 +5,7 @@ const { exec } = require('child_process');
 const app = express();
 app.use(express.json());
 
-const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, DEBUG, GENERATOR_URL } = process.env;
-
+const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, DEBUG, GENERATOR_URL, TELEGRAM_TOKEN } = process.env;
 
 const sendMessage = async (to, text) => {
   const req = {
@@ -78,6 +77,49 @@ function runCommand(res, cmd) {
       console.log(`stdout: ${stdout}`);
     });
 }
+
+function sendTelegram(chatId, message) {
+    axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: message
+    })
+    .then(response => {
+      console.log(`Mensaje "${message}" enviado con éxito`);
+    })
+    .catch(error => {
+      console.error(`Error al enviar mensaje "${message}":`, error);
+    });
+}
+
+function runCommandAsync(chatId, onSuccessMsg, messageText) {
+    const cmd = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python /home/wuilliam/proyectos/ai-financial/test_zsoft.py --mode=stdin --spending="' + messageText + '"'
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Error: ${error.message}`);
+        sendTelegram(chatId, `ups error for: "${message}"`)
+        return;
+      }
+      if (stderr) {
+        console.error(`stderr: ${stderr}`);
+        sendTelegram(chatId, `ups stderr for: "${message}"`)
+        return;
+      }
+      console.log(`stdout: ${stdout}`);
+      sendTelegram(chatId, onSuccessMsg)
+    });
+}
+
+app.post("/telegram", async (req, res) => {
+    // Extraer la información relevante del mensaje
+    const chatId = req.body.message.chat.id;
+    const messageText = req.body.message.text;
+
+    console.log("CHAT req", messageText);
+    sendTelegram(chatId, "en breve te aviso cuando quede registrado el gasto")
+    const onSuccessMsg = "gasto registrado con exito"
+    runCommandAsync(chatId, onSuccessMsg, messageText)
+    res.status(200).send('OK');
+})
 
 app.post("/chat", async (req, res) => {
     console.log("CHAT req", req["body"]);
