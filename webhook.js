@@ -105,7 +105,7 @@ function runCommandAsync(chatId, messageText) {
       return;
     }
     console.log(`stdout: ${stdout}`);
-    sendTelegramMessage(chatId, `✅ Gasto registrado con éxito! 💰`)
+    sendTelegramMessage(chatId, `✅ Gasto "${messageText}" registrado con éxito! 💰`)
   });
 }
 const chatStates = {};
