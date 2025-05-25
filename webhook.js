@@ -88,10 +88,18 @@ function runCommand(res, appPath, args) {
   });
 }
 
+// Escape special characters for MarkdownV2
+function escapeMarkdownV2(text) {
+  return text
+    .replace(/[_*[\]()~`>#+\-=|{}.!]/g, ch => '\\' + ch);
+}
+
 function sendTelegramMessage(chatId, message) {
+  const escapedOutput = escapeMarkdownV2(message);
   axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
     chat_id: chatId,
-    text: message
+    text: escapedOutput,
+    parse_mode: 'MarkdownV2'
   })
     .then(response => {
       console.log(`Mensaje "${message}" enviado con éxito`);
