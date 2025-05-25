@@ -5,7 +5,7 @@ const { exec } = require('child_process');
 const app = express();
 app.use(express.json());
 
-const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, GENERATOR_URL, TELEGRAM_TOKEN } = process.env;
+const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, GENERATOR_URL, TELEGRAM_TOKEN, PM_CEDULA, PM_PASS } = process.env;
 
 const commandQueue = [];
 let isProcessingCommand = false;
@@ -143,23 +143,43 @@ async function processCommandQueue() {
     return;
   }
 
-  const { chatId, appPath, args, originalMessageText } = job;
+  const { chatId, appPath, args, originalMessageText, jobType } = job;
 
-  console.log(`Processing job for chatId ${chatId}: ${originalMessageText}`);
+  console.log(`Processing job for chatId ${chatId}: ${originalMessageText} (type: ${jobType || 'gasto'})`);
 
   try {
-    const result = await runCommandAsync(appPath, args); // Assuming runCommandAsync is already defined
-    console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
-    // Ensure sendTelegramMessage is available or defined in this scope
-    sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`);
-  } catch (errorOutcome) { // This 'errorOutcome' is the object we defined: { type, error, stderr }
+    if (jobType === 'pagomovil') {
+      console.log('Processing pagomovil search...');
+      // Default to pagomovil processing
+      const result = await runCommandAsync(appPath, args);
+      console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
+      sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${result.stdout}`);
+
+      console.log(`Pagomovil search completed successfully for ${originalMessageText}`);
+    }
+
+    if (jobType === 'gasto') {
+      // Default to gasto processing
+      const result = await runCommandAsync(appPath, args);
+      console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
+      sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`);
+    }
+  } catch (errorOutcome) {
     console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
-    if (errorOutcome.error && errorOutcome.error.message) {
-      sendTelegramMessage(chatId, `❌ Error al registrar "${originalMessageText}": ${errorOutcome.error.message}`);
-    } else if (errorOutcome.stderr) {
-      sendTelegramMessage(chatId, `⚠️ Error (stderr) al registrar "${originalMessageText}": ${errorOutcome.stderr}`);
-    } else {
-      sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`);
+
+    if (jobType === 'pagomovil') {
+      sendTelegramMessage(chatId, `❌ Error inesperado buscando pagomovil: ${errorOutcome.message || 'Error desconocido'}`);
+    }
+
+    if (jobType === 'gasto') {
+      // Handle gasto errors as before
+      if (errorOutcome.error && errorOutcome.error.message) {
+        sendTelegramMessage(chatId, `❌ Error al registrar "${originalMessageText}": ${errorOutcome.error.message}`);
+      } else if (errorOutcome.stderr) {
+        sendTelegramMessage(chatId, `⚠️ Error (stderr) al registrar "${originalMessageText}": ${errorOutcome.stderr}`);
+      } else {
+        sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`);
+      }
     }
   } finally {
     isProcessingCommand = false;
@@ -168,6 +188,26 @@ async function processCommandQueue() {
     process.nextTick(processCommandQueue);
   }
 }
+
+
+async function simulateHumanTyping(page, selector, text) {
+  // Click on the input field first
+  await page.click(selector);
+
+  // Clear any existing content
+  await page.evaluate((sel) => {
+    document.querySelector(sel).value = '';
+  }, selector);
+
+  // Type each character with human-like delays
+  for (let char of text) {
+    await page.type(selector, char, {
+      delay: 80 + Math.random() * 120 // Random delay between 80-200ms per character
+    });
+
+  }
+}
+
 const chatStates = {};
 
 app.post("/telegram", async (req, res) => {
@@ -183,6 +223,29 @@ app.post("/telegram", async (req, res) => {
     return;
   }
 
+  if (messageText === "/pagomovil") {
+    const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
+    const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_pagomovil.py'; // Or from config
+    const args = [scriptPath];
+    const job = {
+      chatId: chatId,
+      appPath: appPath,
+      args: args,
+      originalMessageText: messageText,
+      jobType: 'pagomovil'
+    };
+    commandQueue.push(job);
+
+    delete chatStates[chatId]; // Delete state *after* queuing the job.
+
+    sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
+
+    processCommandQueue(); // Kick off processing if not already running
+
+    res.status(200).send('OK');
+    return;
+  }
+
   if (chatStates[chatId] === "WAITING_FOR_AMOUNT") {
     // New logic:
     const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
@@ -190,20 +253,21 @@ app.post("/telegram", async (req, res) => {
     // Note: In runCommandAsync, the scriptPath was the first element of the args array.
     // The new processCommandQueue job structure has `args` which is directly passed to runCommandAsync.
     // So, scriptPath should be the first element in this args array.
-    const args = [scriptPath, '--mode=stdin', `--spending=${messageText}`]; 
+    const args = [scriptPath, '--mode=stdin', `--spending=${messageText}`];
 
     const job = {
       chatId: chatId,
       appPath: appPath,
       args: args,
-      originalMessageText: messageText // Store the original message for notifications
+      originalMessageText: messageText, // Store the original message for notifications
+      jobType: 'gasto'
     };
     commandQueue.push(job);
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
     sendTelegramMessage(chatId, `⏳ Gasto "${messageText}" encolado. Te avisaré cuando esté listo. ✨`);
-    
+
     processCommandQueue(); // Kick off processing if not already running
 
     res.status(200).send('OK');

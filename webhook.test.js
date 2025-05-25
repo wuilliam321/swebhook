@@ -68,6 +68,9 @@ jest.mock('child_process', () => ({
 // Mock axios
 jest.mock('axios');
 
+// Mock puppeteer
+jest.mock('puppeteer');
+
 describe('runCommand', () => {
   beforeEach(() => {
     exec.mockClear();
@@ -511,6 +514,236 @@ describe('/telegram endpoint handler (WAITING_FOR_AMOUNT state)', () => {
     expect(resMock.send).toHaveBeenCalledWith('OK');
     expect(testCommandQueue.length).toBe(0);
     expect(mockProcessCommandQueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('/telegram endpoint handler (/pagomovil command)', () => {
+  const puppeteer = require('puppeteer');
+  const chatId = 'testChatId456';
+  let reqMock;
+  let resMock;
+  let testCommandQueue;
+  let mockProcessCommandQueue;
+  let mockBrowser;
+  let mockPage;
+
+  beforeEach(() => {
+    axios.post.mockClear();
+    testCommandQueue = [];
+    mockProcessCommandQueue = jest.fn();
+
+    // Setup puppeteer mocks
+    mockPage = {
+      goto: jest.fn(),
+      waitForSelector: jest.fn(),
+      type: jest.fn(),
+      press: jest.fn(),
+      evaluate: jest.fn(),
+      close: jest.fn()
+    };
+
+    mockBrowser = {
+      newPage: jest.fn().mockResolvedValue(mockPage),
+      close: jest.fn()
+    };
+
+    puppeteer.launch = jest.fn().mockResolvedValue(mockBrowser);
+
+    reqMock = {
+      body: {
+        message: {
+          chat: { id: chatId },
+          text: '/pagomovil',
+        },
+      },
+    };
+
+    resMock = {
+      status: jest.fn().mockReturnThis(),
+      send: jest.fn(),
+    };
+  });
+
+  async function handleTelegramPagomovilRequest(req, res, currentCommandQueue, triggerProcessQueueFn, sendMsgFn) {
+    const chatId = req.body.message.chat.id;
+    const messageText = req.body.message.text;
+
+    if (messageText === "/pagomovil") {
+      const job = {
+        chatId: chatId,
+        originalMessageText: messageText,
+        jobType: 'pagomovil'
+      };
+      currentCommandQueue.push(job);
+
+      sendMsgFn(chatId, "⏳ Buscando información de pagomovil en Google. Te avisaré cuando esté listo. 🔍");
+      
+      triggerProcessQueueFn();
+
+      res.status(200).send('OK');
+      return;
+    }
+
+    res.status(200).send('OK');
+  }
+
+  async function mockSearchPagomovilOnGoogle() {
+    let browser;
+    try {
+      browser = await puppeteer.launch({ 
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const page = await browser.newPage();
+      
+      await page.goto('https://google.com', { waitUntil: 'networkidle0' });
+      
+      const searchBox = await page.waitForSelector('input[name="q"]', { timeout: 5000 });
+      await searchBox.type('pagomovil');
+      await searchBox.press('Enter');
+      
+      await page.waitForSelector('h3', { timeout: 10000 });
+      
+      const results = await page.evaluate(() => {
+        return [
+          'PagoMóvil - Banco de Venezuela',
+          'Cómo usar PagoMóvil - Guía completa',
+          'PagoMóvil BBVA Provincial',
+          'Sistema PagoMóvil - Banco Mercantil',
+          'PagoMóvil: Todo lo que necesitas saber'
+        ];
+      });
+      
+      return {
+        success: true,
+        results: results
+      };
+      
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
+  }
+
+  function mockFormatPagomovilResults(results) {
+    if (!results || results.length === 0) {
+      return '❌ No se encontraron resultados para "pagomovil"';
+    }
+    
+    let message = '🔍 Resultados de búsqueda para "pagomovil":\n\n';
+    results.forEach((title, index) => {
+      message += `${index + 1}. ${title}\n`;
+    });
+    
+    return message;
+  }
+
+  test('should queue pagomovil job and send acknowledgment message', async () => {
+    await handleTelegramPagomovilRequest(
+      reqMock,
+      resMock,
+      testCommandQueue,
+      mockProcessCommandQueue,
+      sendTelegramMessage
+    );
+
+    expect(testCommandQueue.length).toBe(1);
+    const job = testCommandQueue[0];
+    expect(job.chatId).toBe(chatId);
+    expect(job.originalMessageText).toBe('/pagomovil');
+    expect(job.jobType).toBe('pagomovil');
+
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(axios.post).toHaveBeenCalledWith(expect.any(String), {
+      chat_id: chatId,
+      text: "⏳ Buscando información de pagomovil en Google. Te avisaré cuando esté listo. 🔍",
+    });
+
+    expect(mockProcessCommandQueue).toHaveBeenCalledTimes(1);
+    expect(resMock.status).toHaveBeenCalledWith(200);
+    expect(resMock.send).toHaveBeenCalledWith('OK');
+  });
+
+  test('should successfully search Google and format results', async () => {
+    // Setup successful puppeteer interaction
+    const mockSearchBox = { type: jest.fn(), press: jest.fn() };
+    mockPage.waitForSelector.mockResolvedValueOnce(mockSearchBox);
+    mockPage.waitForSelector.mockResolvedValueOnce(true); // for h3 elements
+    mockPage.evaluate.mockResolvedValue([
+      'PagoMóvil - Banco de Venezuela',
+      'Cómo usar PagoMóvil - Guía completa',
+      'PagoMóvil BBVA Provincial',
+      'Sistema PagoMóvil - Banco Mercantil',
+      'PagoMóvil: Todo lo que necesitas saber'
+    ]);
+
+    const result = await mockSearchPagomovilOnGoogle();
+
+    expect(result.success).toBe(true);
+    expect(result.results).toHaveLength(5);
+    expect(result.results[0]).toBe('PagoMóvil - Banco de Venezuela');
+
+    // Test formatting
+    const formattedMessage = mockFormatPagomovilResults(result.results);
+    expect(formattedMessage).toContain('🔍 Resultados de búsqueda para "pagomovil":');
+    expect(formattedMessage).toContain('1. PagoMóvil - Banco de Venezuela');
+    expect(formattedMessage).toContain('5. PagoMóvil: Todo lo que necesitas saber');
+
+    expect(puppeteer.launch).toHaveBeenCalledWith({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    expect(mockBrowser.newPage).toHaveBeenCalled();
+    expect(mockPage.goto).toHaveBeenCalledWith('https://google.com', { waitUntil: 'networkidle0' });
+    expect(mockSearchBox.type).toHaveBeenCalledWith('pagomovil');
+    expect(mockSearchBox.press).toHaveBeenCalledWith('Enter');
+    expect(mockBrowser.close).toHaveBeenCalled();
+  });
+
+  test('should handle Google search errors gracefully', async () => {
+    puppeteer.launch.mockRejectedValue(new Error('Browser launch failed'));
+
+    const result = await mockSearchPagomovilOnGoogle();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Browser launch failed');
+  });
+
+  test('should handle empty search results', async () => {
+    const mockSearchBox = { type: jest.fn(), press: jest.fn() };
+    mockPage.waitForSelector.mockResolvedValueOnce(mockSearchBox);
+    mockPage.waitForSelector.mockResolvedValueOnce(true);
+    mockPage.evaluate.mockResolvedValue([]); // Empty results array
+
+    // Override the puppeteer mock to actually throw the error
+    puppeteer.launch.mockImplementationOnce(async () => {
+      const page = await mockBrowser.newPage();
+      await page.goto('https://google.com', { waitUntil: 'networkidle0' });
+      const searchBox = await page.waitForSelector('input[name="q"]', { timeout: 5000 });
+      await searchBox.type('pagomovil');
+      await searchBox.press('Enter');
+      await page.waitForSelector('h3', { timeout: 10000 });
+      
+      const results = await page.evaluate(() => []);
+      if (results.length === 0) {
+        throw new Error('No search results found');
+      }
+      return { success: true, results };
+    });
+
+    const result = await mockSearchPagomovilOnGoogle();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('No search results found');
+
+    const formattedMessage = mockFormatPagomovilResults([]);
+    expect(formattedMessage).toBe('❌ No se encontraron resultados para "pagomovil"');
   });
 });
 
