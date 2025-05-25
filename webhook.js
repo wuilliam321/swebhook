@@ -223,10 +223,10 @@ app.post("/telegram", async (req, res) => {
     return;
   }
 
-  if (messageText === "/pagomovil") {
-    const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
-    const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_pagomovil.py'; // Or from config
-    const args = [scriptPath];
+  if (messageText === "/pagomovil_wuilliam") {
+    const appPath = '/home/wuilliam/personal/ai-financial/.venv/bin/python'; // Or from config
+    const scriptPath = '/home/wuilliam/personal/ai-financial/test_pagomovil.py'; // Or from config
+    const args = [scriptPath, '--account=wuilliam'];
     const job = {
       chatId: chatId,
       appPath: appPath,
@@ -238,7 +238,30 @@ app.post("/telegram", async (req, res) => {
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
+    sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Wuilliam en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
+
+    processCommandQueue(); // Kick off processing if not already running
+
+    res.status(200).send('OK');
+    return;
+  }
+
+  if (messageText === "/pagomovil_gilza") {
+    const appPath = '/home/wuilliam/personal/ai-financial/.venv/bin/python'; // Or from config
+    const scriptPath = '/home/wuilliam/personal/ai-financial/test_pagomovil.py'; // Or from config
+    const args = [scriptPath, '--account=gilza'];
+    const job = {
+      chatId: chatId,
+      appPath: appPath,
+      args: args,
+      originalMessageText: messageText,
+      jobType: 'pagomovil'
+    };
+    commandQueue.push(job);
+
+    delete chatStates[chatId]; // Delete state *after* queuing the job.
+
+    sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Gilza en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
 
     processCommandQueue(); // Kick off processing if not already running
 
