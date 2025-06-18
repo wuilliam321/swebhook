@@ -1,5 +1,5 @@
 const express = require("express");
-const axios = require('axios');
+const axios = require('axios').default;
 const { exec } = require('child_process');
 
 const app = express();
@@ -101,7 +101,7 @@ function sendTelegramMessage(chatId, message) {
     text: escapedOutput,
     parse_mode: 'MarkdownV2'
   })
-    .then(_ => {
+    .then(() => {
       console.log(`Mensaje "${message}" enviado con éxito`);
     })
     .catch(error => {
