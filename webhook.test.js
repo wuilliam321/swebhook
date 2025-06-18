@@ -26,6 +26,167 @@ function runCommand(res, appPath, args) {
   });
 }
 
+// #############################################################################
+// Tests for /report endpoint handler logic
+// #############################################################################
+
+describe('/telegram endpoint handler (/report command)', () => {
+  const chatId = 'testReportChatId';
+  let reqMock;
+  let resMock;
+  let testChatStates;
+  let testCommandQueue;
+  let mockProcessCommandQueue;
+
+  beforeEach(() => {
+    axios.post.mockClear();
+    testChatStates = {};
+    testCommandQueue = [];
+    mockProcessCommandQueue = jest.fn();
+
+    reqMock = {
+      body: {
+        message: {
+          chat: { id: chatId },
+          text: '',
+        },
+      },
+    };
+    resMock = {
+      status: jest.fn().mockReturnThis(),
+      send: jest.fn(),
+    };
+  });
+
+  // Handler logic for /report, similar to handleTelegramRequest
+  async function handleTelegramReportRequest(
+    req,
+    res,
+    currentChatStates,
+    sendMsgFn,
+    currentCommandQueue,
+    triggerProcessQueueFn
+  ) {
+    const chatId = req.body.message.chat.id;
+    const userCommand = req.body.message.text;
+
+    if (userCommand === "/report") {
+      currentChatStates[chatId] = "WAITING_FOR_REPORT_OPTION";
+      sendMsgFn(
+        chatId,
+        "📊 ¿Qué período deseas para el reporte?\n" +
+        "[0] 📅 Hoy\n" +
+        "[1] 🗓️ Semana actual\n" +
+        "[2] 📆 Semana pasada\n" +
+        "[3] 🗓️ Mes actual\n" +
+        "[4] 📆 Mes pasado\n" +
+        "[5] 📊 Trimestre actual\n" +
+        "[6] 📈 Trimestre pasado"
+      );
+      res.status(200).send('OK');
+      return;
+    }
+
+    if (currentChatStates[chatId] === "WAITING_FOR_REPORT_OPTION") {
+      const validOptions = ["0", "1", "2", "3", "4", "5", "6"];
+      if (validOptions.includes(userCommand.trim())) {
+        sendMsgFn(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑");
+        delete currentChatStates[chatId];
+        const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python';
+        const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_report_store.py';
+        const args = [scriptPath, `--period=${userCommand.trim()}`];
+        const job = {
+          chatId: chatId,
+          appPath: appPath,
+          args: args,
+          originalMessageText: `/report ${userCommand.trim()}`,
+          jobType: 'report'
+        };
+        currentCommandQueue.push(job);
+        triggerProcessQueueFn();
+      } else {
+        sendMsgFn(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.");
+      }
+      res.status(200).send('OK');
+      return;
+    }
+
+    res.status(200).send('OK');
+  }
+
+  test('should set state and prompt for period on /report', async () => {
+    reqMock.body.message.text = "/report";
+    await handleTelegramReportRequest(
+      reqMock,
+      resMock,
+      testChatStates,
+      sendTelegramMessage,
+      testCommandQueue,
+      mockProcessCommandQueue
+    );
+    expect(testChatStates[chatId]).toBe("WAITING_FOR_REPORT_OPTION");
+    expect(axios.post).toHaveBeenCalledWith(expect.any(String), {
+      chat_id: chatId,
+      text: expect.stringContaining("¿Qué período deseas para el reporte?")
+    });
+    expect(resMock.status).toHaveBeenCalledWith(200);
+    expect(resMock.send).toHaveBeenCalledWith('OK');
+    expect(testCommandQueue.length).toBe(0);
+    expect(mockProcessCommandQueue).not.toHaveBeenCalled();
+  });
+
+  test('should enqueue report job and trigger queue on valid option', async () => {
+    testChatStates[chatId] = "WAITING_FOR_REPORT_OPTION";
+    reqMock.body.message.text = "0";
+    await handleTelegramReportRequest(
+      reqMock,
+      resMock,
+      testChatStates,
+      sendTelegramMessage,
+      testCommandQueue,
+      mockProcessCommandQueue
+    );
+    expect(axios.post).toHaveBeenCalledWith(expect.any(String), {
+      chat_id: chatId,
+      text: expect.stringContaining("Estamos generando tu reporte")
+    });
+    expect(testChatStates[chatId]).toBeUndefined();
+    expect(testCommandQueue.length).toBe(1);
+    const job = testCommandQueue[0];
+    expect(job.chatId).toBe(chatId);
+    expect(job.appPath).toContain('.venv/bin/python');
+    expect(job.args[0]).toContain('test_report_store.py');
+    expect(job.args[1]).toBe('--period=0');
+    expect(job.originalMessageText).toBe('/report 0');
+    expect(job.jobType).toBe('report');
+    expect(mockProcessCommandQueue).toHaveBeenCalledTimes(1);
+    expect(resMock.status).toHaveBeenCalledWith(200);
+    expect(resMock.send).toHaveBeenCalledWith('OK');
+  });
+
+  test('should prompt for valid option on invalid input', async () => {
+    testChatStates[chatId] = "WAITING_FOR_REPORT_OPTION";
+    reqMock.body.message.text = "invalid";
+    await handleTelegramReportRequest(
+      reqMock,
+      resMock,
+      testChatStates,
+      sendTelegramMessage,
+      testCommandQueue,
+      mockProcessCommandQueue
+    );
+    expect(axios.post).toHaveBeenCalledWith(expect.any(String), {
+      chat_id: chatId,
+      text: expect.stringContaining("Por favor, responde con un número entre 0 y 6")
+    });
+    expect(testChatStates[chatId]).toBe("WAITING_FOR_REPORT_OPTION");
+    expect(testCommandQueue.length).toBe(0);
+    expect(mockProcessCommandQueue).not.toHaveBeenCalled();
+    expect(resMock.status).toHaveBeenCalledWith(200);
+    expect(resMock.send).toHaveBeenCalledWith('OK');
+  });
+});
+
 function sendTelegramMessage(chatId, message) {
   // This is a simplified version for testing runCommandAsync
   // In webhook.js, it uses axios.post
@@ -370,9 +531,9 @@ async function handleTelegramRequest(
   triggerProcessQueueFn // Pass the mock processCommandQueue
 ) {
   const chatId = req.body.message.chat.id;
-  const messageText = req.body.message.text;
+  const userCommand = req.body.message.text;
 
-  if (messageText === "/gasto") {
+  if (userCommand === "/gasto") {
     currentChatStates[chatId] = "WAITING_FOR_AMOUNT";
     sendMsgFn(chatId, "💰 ¿Cuánto gastaste y en qué?");
     res.status(200).send('OK');
@@ -382,19 +543,19 @@ async function handleTelegramRequest(
   if (currentChatStates[chatId] === "WAITING_FOR_AMOUNT") {
     const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python';
     const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_zsoft.py';
-    const args = [scriptPath, '--mode=stdin', `--spending=${messageText}`];
+    const args = [scriptPath, '--mode=stdin', `--spending=${userCommand}`];
 
     const job = {
       chatId: chatId,
       appPath: appPath,
       args: args,
-      originalMessageText: messageText
+      originalMessageText: userCommand
     };
     currentCommandQueue.push(job);
 
     delete currentChatStates[chatId]; 
 
-    sendMsgFn(chatId, `⏳ Gasto "${messageText}" encolado. Te avisaré cuando esté listo. ✨`);
+    sendMsgFn(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`);
     
     triggerProcessQueueFn(); 
 

@@ -5,7 +5,7 @@ const { exec } = require('child_process');
 const app = express();
 app.use(express.json());
 
-const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, GENERATOR_URL, TELEGRAM_TOKEN, PM_CEDULA, PM_PASS } = process.env;
+const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, GENERATOR_URL, TELEGRAM_TOKEN } = process.env;
 
 const commandQueue = [];
 let isProcessingCommand = false;
@@ -67,7 +67,7 @@ async function generateRequest(body) {
   }
 }
 
-function runCommand(res, appPath, args) {
+function runCommand(_, appPath, args) {
   // Simple quoting for arguments. This might need to be more robust
   // depending on the shell and potential argument content.
   const escapedArgs = args.map(arg => `'${arg.replace(/'/g, "'\\''")}'`).join(' ');
@@ -101,7 +101,7 @@ function sendTelegramMessage(chatId, message) {
     text: escapedOutput,
     parse_mode: 'MarkdownV2'
   })
-    .then(response => {
+    .then(_ => {
       console.log(`Mensaje "${message}" enviado con éxito`);
     })
     .catch(error => {
@@ -172,6 +172,13 @@ async function processCommandQueue() {
       console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
       sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`);
     }
+
+    if (jobType === 'report') {
+      // Handle report generation job
+      const result = await runCommandAsync(appPath, args);
+      console.log(`Report job for ${originalMessageText} completed. stdout:`, result.stdout);
+      sendTelegramMessage(chatId, `📊 Reporte generado:\n\n${result.stdout}`);
+    }
   } catch (errorOutcome) {
     console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
 
@@ -189,6 +196,17 @@ async function processCommandQueue() {
         sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`);
       }
     }
+
+    if (jobType === 'report') {
+      // Handle report errors
+      if (errorOutcome.error && errorOutcome.error.message) {
+        sendTelegramMessage(chatId, `❌ Error al generar el reporte: ${errorOutcome.error.message}`);
+      } else if (errorOutcome.stderr) {
+        sendTelegramMessage(chatId, `⚠️ Error (stderr) al generar el reporte: ${errorOutcome.stderr}`);
+      } else {
+        sendTelegramMessage(chatId, `❌ Error desconocido al generar el reporte`);
+      }
+    }
   } finally {
     isProcessingCommand = false;
     // Trigger processing for the next item in the queue, if any.
@@ -197,49 +215,32 @@ async function processCommandQueue() {
   }
 }
 
-
-async function simulateHumanTyping(page, selector, text) {
-  // Click on the input field first
-  await page.click(selector);
-
-  // Clear any existing content
-  await page.evaluate((sel) => {
-    document.querySelector(sel).value = '';
-  }, selector);
-
-  // Type each character with human-like delays
-  for (let char of text) {
-    await page.type(selector, char, {
-      delay: 80 + Math.random() * 120 // Random delay between 80-200ms per character
-    });
-
-  }
-}
-
 const chatStates = {};
 
 app.post("/telegram", async (req, res) => {
   const chatId = req.body.message.chat.id;
-  const messageText = req.body.message.text;
+  const userCommand = req.body.message.text;
 
-  console.log("CHAT req", messageText);
+  console.log("CHAT req", userCommand);
 
-  if (messageText === "/gasto") {
+  // --- /gasto command ---
+  if (userCommand === "/gasto") {
     chatStates[chatId] = "WAITING_FOR_AMOUNT";
     sendTelegramMessage(chatId, "💰 ¿Cuánto gastaste y en qué?");
     res.status(200).send('OK');
     return;
   }
 
-  if (messageText === "/pagomovil_wuilliam") {
-    const appPath = '/home/wuilliam/personal/ai-financial/.venv/bin/python'; // Or from config
-    const scriptPath = '/home/wuilliam/personal/ai-financial/test_pagomovil.py'; // Or from config
+  // --- /pagomovil_wuilliam command ---
+  if (userCommand === "/pagomovil_wuilliam") {
+    const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
+    const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_pagomovil.py'; // Or from config
     const args = [scriptPath, '--account=wuilliam'];
     const job = {
       chatId: chatId,
       appPath: appPath,
       args: args,
-      originalMessageText: messageText,
+      originalMessageText: userCommand,
       jobType: 'pagomovil'
     };
     commandQueue.push(job);
@@ -254,15 +255,16 @@ app.post("/telegram", async (req, res) => {
     return;
   }
 
-  if (messageText === "/pagomovil_gilza") {
-    const appPath = '/home/wuilliam/personal/ai-financial/.venv/bin/python'; // Or from config
-    const scriptPath = '/home/wuilliam/personal/ai-financial/test_pagomovil.py'; // Or from config
+  // --- /pagomovil_gilza command ---
+  if (userCommand === "/pagomovil_gilza") {
+    const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
+    const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_pagomovil.py'; // Or from config
     const args = [scriptPath, '--account=gilza'];
     const job = {
       chatId: chatId,
       appPath: appPath,
       args: args,
-      originalMessageText: messageText,
+      originalMessageText: userCommand,
       jobType: 'pagomovil'
     };
     commandQueue.push(job);
@@ -277,6 +279,56 @@ app.post("/telegram", async (req, res) => {
     return;
   }
 
+  // --- /report command: Step 1 ---
+  if (userCommand === "/report") {
+    chatStates[chatId] = "WAITING_FOR_REPORT_OPTION";
+    sendTelegramMessage(
+      chatId,
+      "📊 ¿Qué período deseas para el reporte?\n" +
+      "[0] 📅 Hoy\n" +
+      "[1] 🗓️ Semana actual\n" +
+      "[2] 📆 Semana pasada\n" +
+      "[3] 🗓️ Mes actual\n" +
+      "[4] 📆 Mes pasado\n" +
+      "[5] 📊 Trimestre actual\n" +
+      "[6] 📈 Trimestre pasado"
+    );
+    res.status(200).send('OK');
+    return;
+  }
+
+
+  // --- /report option selection ---
+  if (chatStates[chatId] === "WAITING_FOR_REPORT_OPTION") {
+    // Only accept numbers 0-6
+    const validOptions = ["0", "1", "2", "3", "4", "5", "6"];
+    if (validOptions.includes(userCommand.trim())) {
+      // Feedback to user
+      sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑");
+      delete chatStates[chatId];
+      // Enqueue a report generation job
+      const appPath = '/home/wuilliam/.local/bin/node-v21.7.1-linux-x64/bin/node'; // Or from config
+      const scriptPath = '/home/wuilliam/proyectos/7db-inventariodb/analize_short.js'; // Or from config
+      const args = [scriptPath, '--period', `${userCommand.trim()}`, '--ai', 'true'];
+      const job = {
+        chatId: chatId,
+        appPath: appPath,
+        args: args,
+        originalMessageText: `/report ${userCommand.trim()}`,
+        jobType: 'report'
+      };
+      commandQueue.push(job);
+      delete chatStates[chatId];
+      // Feedback to user is already sent above
+      processCommandQueue();
+    } else {
+      sendTelegramMessage(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.");
+    }
+    res.status(200).send('OK');
+    return;
+  }
+
+  // --- /gasto amount input ---
   if (chatStates[chatId] === "WAITING_FOR_AMOUNT") {
     // New logic:
     const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
@@ -284,20 +336,20 @@ app.post("/telegram", async (req, res) => {
     // Note: In runCommandAsync, the scriptPath was the first element of the args array.
     // The new processCommandQueue job structure has `args` which is directly passed to runCommandAsync.
     // So, scriptPath should be the first element in this args array.
-    const args = [scriptPath, '--mode=stdin', `--spending=${messageText}`];
+    const args = [scriptPath, '--mode=stdin', `--spending=${userCommand}`];
 
     const job = {
       chatId: chatId,
       appPath: appPath,
       args: args,
-      originalMessageText: messageText, // Store the original message for notifications
+      originalMessageText: userCommand, // Store the original message for notifications
       jobType: 'gasto'
     };
     commandQueue.push(job);
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    sendTelegramMessage(chatId, `⏳ Gasto "${messageText}" encolado. Te avisaré cuando esté listo. ✨`);
+    sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`);
 
     processCommandQueue(); // Kick off processing if not already running
 
@@ -305,7 +357,7 @@ app.post("/telegram", async (req, res) => {
     return;
   }
 
-  console.log("nothing to do for", messageText);
+  console.log("nothing to do for", userCommand);
 
   res.status(200).send('OK');
 })
@@ -359,7 +411,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-app.get("/", (req, res) => {
+app.get("/", (_, res) => {
   res.send(`<pre>Nothing to see here.
 Checkout README.md to start.</pre>`);
 });

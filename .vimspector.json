@@ -1,0 +1,55 @@
+{
+    "configurations": {
+        "run - node": {
+            "adapter": "js-debug",
+            "filetypes": [
+                "javascript"
+            ],
+            "configuration": {
+                "request": "launch",
+                "protocol": "auto",
+                "stopOnEntry": true,
+                "console": "integratedTerminal",
+                "program": "${workspaceRoot}/webhook.test.js",
+                "cwd": "${workspaceRoot}"
+            }
+        },
+        "run - js-debug": {
+            "adapter": "js-debug",
+            "filetypes": [
+                "javascript",
+                "typescript"
+            ],
+            "configuration": {
+                "request": "launch",
+                "program": "${workspaceRoot}/webhook.test.js",
+                "cwd": "${workspaceRoot}",
+                "stopOnEntry": false
+            },
+            "breakpoints": {
+                "exception": {
+                    "all": "N",
+                    "uncaught": "N"
+                }
+            }
+        },
+        "debug - jest tests": {
+            "default": true,
+            "adapter": "js-debug",
+            "filetypes": [
+                "javascript",
+                "typescript"
+            ],
+            "configuration": {
+                "request": "launch",
+                "program": "${workspaceRoot}/node_modules/.bin/jest",
+                "args": [
+                    "--runInBand"
+                ],
+                "cwd": "${workspaceRoot}",
+                "console": "integratedTerminal",
+                "internalConsoleOptions": "neverOpen"
+            }
+        }
+    }
+}
