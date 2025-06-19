@@ -99,20 +99,21 @@ function parseProductLookup(jsonOutput) {
   try {
     const productData = JSON.parse(jsonOutput);
 
-    // Format the message
+    // Format the message with emoji and organized sections
     const formattedMessage = [
-      `*${productData.Codigo}*`,
+      `👗 *${productData.Categoria} - ${productData.Codigo}*`,
+      `📝 *Descripcion:* ${productData.Descripcion}`,
+      `🎨 *Color:* ${productData.Color}`,
+      `📏 *Talla:* ${productData.Talla}`,
       ``,
-      `*Categoría:* ${productData.Categoria}`,
-      `*Descripción:* ${productData.Descripcion}`,
-      `*Proveedor:* ${productData.Proveedor}`,
-      `*Talla:* ${productData.Talla}`,
-      `*Color:* ${productData.Color}`,
-      `*Tienda:* ${productData.Tienda}`,
-      `*Precio de Compra:* $${productData["Precio de Compra"]}`,
-      `*Operación:* ${productData.Operacion}`,
-      `*Monto:* $${productData.Monto}`,
-      `*Fecha de Venta:* ${productData["Fecha de Venta"]}`
+      `💼 *Proveedor:* ${productData.Proveedor}`,
+      `🏪 *Tienda:* ${productData.Tienda}`,
+      ``,
+      `💰 *Precio de Compra:* $${productData["Precio de Compra"]}`,
+      `💵 *Precio de Venta:* $${productData.Monto}`,
+      `🔄 *Estado:* ${productData.Operacion}`,
+      ``,
+      `🖼️ [Ver imagen](${productData.Image || ""})`
     ].join('\n');
 
     return {
