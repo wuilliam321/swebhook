@@ -101,19 +101,17 @@ function parseProductLookup(jsonOutput) {
 
     // Format the message with emoji and organized sections
     const formattedMessage = [
-      `👗 *${productData.Categoria} - ${productData.Codigo}*`,
-      `📝 *Descripcion:* ${productData.Descripcion}`,
-      `🎨 *Color:* ${productData.Color}`,
-      `📏 *Talla:* ${productData.Talla}`,
+      `👗 ${productData.Categoria} - ${productData.Codigo}`,
+      `📝 ${productData.Descripcion}`,
+      `🎨 Color: ${productData.Color}`,
+      `📏 Talla: ${productData.Talla}`,
       ``,
-      `💼 *Proveedor:* ${productData.Proveedor}`,
-      `🏪 *Tienda:* ${productData.Tienda}`,
+      `💼 Proveedor: ${productData.Proveedor}`,
+      `🏪 Tienda: ${productData.Tienda}`,
       ``,
-      `💰 *Precio de Compra:* $${productData["Precio de Compra"]}`,
-      `💵 *Precio de Venta:* $${productData.Monto}`,
-      `🔄 *Estado:* ${productData.Operacion}`,
-      ``,
-      `🖼️ [Ver imagen](${productData.Image || ""})`
+      `💰 Precio de Compra: $${productData["Precio de Compra"]}`,
+      `💵 Precio de Venta: $${productData.Monto}`,
+      `${productData.Operacion === 'DISPONIBLE' ? '✅' : productData.Operacion === 'VENDIDO' ? '💰' : productData.Operacion === 'APARTADO' ? '🔒' : '🔄'} Estado: ${productData.Operacion}`
     ].join('\n');
 
     return {
