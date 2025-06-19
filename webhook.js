@@ -94,19 +94,87 @@ function escapeMarkdownV2(text) {
     .replace(/[_*[\]()~`>#+\-=|{}.!]/g, ch => '\\' + ch);
 }
 
-function sendTelegramMessage(chatId, message) {
+// Parse product lookup JSON output and return formatted message and image URL
+function parseProductLookup(jsonOutput) {
+  try {
+    const productData = JSON.parse(jsonOutput);
+
+    // Format the message
+    const formattedMessage = [
+      `*${productData.Codigo}*`,
+      ``,
+      `*Categoría:* ${productData.Categoria}`,
+      `*Descripción:* ${productData.Descripcion}`,
+      `*Proveedor:* ${productData.Proveedor}`,
+      `*Talla:* ${productData.Talla}`,
+      `*Color:* ${productData.Color}`,
+      `*Tienda:* ${productData.Tienda}`,
+      `*Precio de Compra:* $${productData["Precio de Compra"]}`,
+      `*Operación:* ${productData.Operacion}`,
+      `*Monto:* $${productData.Monto}`,
+      `*Fecha de Venta:* ${productData["Fecha de Venta"]}`
+    ].join('\n');
+
+    return {
+      message: formattedMessage,
+      imageUrl: productData.Image || null
+    };
+  } catch (error) {
+    console.error('Error parsing product lookup JSON:', error);
+    return {
+      message: `Error al procesar la información del producto: ${error.message}`,
+      imageUrl: null
+    };
+  }
+}
+
+async function sendTelegramMessage(chatId, message) {
   const escapedOutput = escapeMarkdownV2(message);
-  axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+  return axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
     chat_id: chatId,
     text: escapedOutput,
     parse_mode: 'MarkdownV2'
   })
     .then(() => {
       console.log(`Mensaje "${message}" enviado con éxito`);
+      return { success: true };
     })
     .catch(error => {
       console.error(`Error al enviar mensaje "${message}":`, error);
+      return { success: false, error };
     });
+}
+
+// Function to send product details with image
+async function sendProductDetails(chatId, jsonOutput) {
+  try {
+    const { message, imageUrl } = parseProductLookup(jsonOutput);
+
+    // If we have an image URL, send photo with caption
+    if (imageUrl) {
+      return axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendPhoto`, {
+        chat_id: chatId,
+        photo: imageUrl,
+        caption: escapeMarkdownV2(message),
+        parse_mode: 'MarkdownV2'
+      })
+        .then(() => {
+          console.log(`Mensaje de producto con imagen enviado con éxito`);
+          return { success: true };
+        })
+        .catch(error => {
+          console.error(`Error al enviar mensaje de producto con imagen:`, error);
+          // Fallback to text-only message if sending image fails
+          return sendTelegramMessage(chatId, message);
+        });
+    } else {
+      // If no image URL, send text-only message
+      return sendTelegramMessage(chatId, message);
+    }
+  } catch (error) {
+    console.error('Error sending product details:', error);
+    return sendTelegramMessage(chatId, `❌ Error al enviar detalles del producto: ${error.message}`);
+  }
 }
 
 async function runCommandAsync(appPath, args) {
@@ -161,7 +229,7 @@ async function processCommandQueue() {
       // Default to pagomovil processing
       const result = await runCommandAsync(appPath, args);
       console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
-      sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${result.stdout}`);
+      await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${result.stdout}`);
 
       console.log(`Pagomovil search completed successfully for ${originalMessageText}`);
     }
@@ -170,41 +238,63 @@ async function processCommandQueue() {
       // Default to gasto processing
       const result = await runCommandAsync(appPath, args);
       console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
-      sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`);
+      await sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`);
     }
 
     if (jobType === 'report') {
       // Handle report generation job
       const result = await runCommandAsync(appPath, args);
       console.log(`Report job for ${originalMessageText} completed. stdout:`, result.stdout);
-      sendTelegramMessage(chatId, `📊 Reporte generado:\n\n${result.stdout}`);
+      await sendTelegramMessage(chatId, `📊 Reporte generado:\n\n${result.stdout}`);
+    }
+
+    if (jobType === 'product_lookup') {
+      // Handle product lookup job
+      console.log('Processing product lookup...');
+      const result = await runCommandAsync(appPath, args);
+      console.log(`Product lookup job for ${originalMessageText} completed. stdout:`, result.stdout);
+
+      // Use specialized function to send product details with image
+      await sendProductDetails(chatId, result.stdout);
+      console.log(`Product lookup completed successfully for ${originalMessageText}`);
     }
   } catch (errorOutcome) {
     console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
 
     if (jobType === 'pagomovil') {
-      sendTelegramMessage(chatId, `❌ Error inesperado buscando pagomovil: ${errorOutcome.message || 'Error desconocido'}`);
+      await sendTelegramMessage(chatId, `❌ Error inesperado buscando pagomovil: ${errorOutcome.message || 'Error desconocido'}`);
     }
 
     if (jobType === 'gasto') {
       // Handle gasto errors as before
       if (errorOutcome.error && errorOutcome.error.message) {
-        sendTelegramMessage(chatId, `❌ Error al registrar "${originalMessageText}": ${errorOutcome.error.message}`);
+        await sendTelegramMessage(chatId, `❌ Error al registrar "${originalMessageText}": ${errorOutcome.error.message}`);
       } else if (errorOutcome.stderr) {
-        sendTelegramMessage(chatId, `⚠️ Error (stderr) al registrar "${originalMessageText}": ${errorOutcome.stderr}`);
+        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al registrar "${originalMessageText}": ${errorOutcome.stderr}`);
       } else {
-        sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`);
+        await sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`);
       }
     }
 
     if (jobType === 'report') {
       // Handle report errors
       if (errorOutcome.error && errorOutcome.error.message) {
-        sendTelegramMessage(chatId, `❌ Error al generar el reporte: ${errorOutcome.error.message}`);
+        await sendTelegramMessage(chatId, `❌ Error al generar el reporte: ${errorOutcome.error.message}`);
       } else if (errorOutcome.stderr) {
-        sendTelegramMessage(chatId, `⚠️ Error (stderr) al generar el reporte: ${errorOutcome.stderr}`);
+        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al generar el reporte: ${errorOutcome.stderr}`);
       } else {
-        sendTelegramMessage(chatId, `❌ Error desconocido al generar el reporte`);
+        await sendTelegramMessage(chatId, `❌ Error desconocido al generar el reporte`);
+      }
+    }
+
+    if (jobType === 'product_lookup') {
+      // Handle product lookup errors
+      if (errorOutcome.error && errorOutcome.error.message) {
+        await sendTelegramMessage(chatId, `❌ Error al consultar el producto: ${errorOutcome.error.message}`);
+      } else if (errorOutcome.stderr) {
+        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al consultar el producto: ${errorOutcome.stderr}`);
+      } else {
+        await sendTelegramMessage(chatId, `❌ Error desconocido al consultar el producto`);
       }
     }
   } finally {
@@ -226,7 +316,7 @@ app.post("/telegram", async (req, res) => {
   // --- /gasto command ---
   if (userCommand === "/gasto") {
     chatStates[chatId] = "WAITING_FOR_AMOUNT";
-    sendTelegramMessage(chatId, "💰 ¿Cuánto gastaste y en qué?");
+    await sendTelegramMessage(chatId, "💰 ¿Cuánto gastaste y en qué?");
     res.status(200).send('OK');
     return;
   }
@@ -241,13 +331,13 @@ app.post("/telegram", async (req, res) => {
       appPath: appPath,
       args: args,
       originalMessageText: userCommand,
-      jobType: 'pagomovil'
+      jobType: 'pagomovil',
     };
     commandQueue.push(job);
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Wuilliam en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
+    await sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Wuilliam en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
 
     processCommandQueue(); // Kick off processing if not already running
 
@@ -271,7 +361,7 @@ app.post("/telegram", async (req, res) => {
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Gilza en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
+    await sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Gilza en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
 
     processCommandQueue(); // Kick off processing if not already running
 
@@ -282,7 +372,7 @@ app.post("/telegram", async (req, res) => {
   // --- /report command: Step 1 ---
   if (userCommand === "/report") {
     chatStates[chatId] = "WAITING_FOR_REPORT_OPTION";
-    sendTelegramMessage(
+    await sendTelegramMessage(
       chatId,
       "📊 ¿Qué período deseas para el reporte?\n" +
       "[0] 📅 Hoy\n" +
@@ -297,6 +387,14 @@ app.post("/telegram", async (req, res) => {
     return;
   }
 
+  // --- /consulta_codigo command: Step 1 ---
+  if (userCommand === "/consulta_codigo") {
+    chatStates[chatId] = "WAITING_FOR_PRODUCT_CODE";
+    await sendTelegramMessage(chatId, "🔍 Por favor, ingresa el código del producto que deseas consultar:");
+    res.status(200).send('OK');
+    return;
+  }
+
 
   // --- /report option selection ---
   if (chatStates[chatId] === "WAITING_FOR_REPORT_OPTION") {
@@ -304,7 +402,7 @@ app.post("/telegram", async (req, res) => {
     const validOptions = ["0", "1", "2", "3", "4", "5", "6"];
     if (validOptions.includes(userCommand.trim())) {
       // Feedback to user
-      sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑");
+      await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑");
       delete chatStates[chatId];
       // Enqueue a report generation job
       const appPath = '/home/wuilliam/.local/bin/node-v21.7.1-linux-x64/bin/node'; // Or from config
@@ -322,7 +420,35 @@ app.post("/telegram", async (req, res) => {
       // Feedback to user is already sent above
       processCommandQueue();
     } else {
-      sendTelegramMessage(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.");
+      await sendTelegramMessage(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.");
+    }
+    res.status(200).send('OK');
+    return;
+  }
+
+  // --- /consulta_codigo product code input ---
+  if (chatStates[chatId] === "WAITING_FOR_PRODUCT_CODE") {
+    if (userCommand.trim()) {
+      // Feedback to user
+      await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`);
+      delete chatStates[chatId];
+      // Enqueue a product lookup job
+      const appPath = '/home/wuilliam/.local/bin/node-v21.7.1-linux-x64/bin/node'; // Or from config
+      const scriptPath = '/home/wuilliam/proyectos/7db-inventariodb/product_lookup.js'; // Or from config
+      const args = [scriptPath, '--code', `${userCommand.trim()}`];
+      const job = {
+        chatId: chatId,
+        appPath: appPath,
+        args: args,
+        originalMessageText: userCommand.trim(),
+        jobType: 'product_lookup',
+        onStdout: parseProductLookup,
+      };
+      commandQueue.push(job);
+      // Feedback to user is already sent above
+      processCommandQueue();
+    } else {
+      await sendTelegramMessage(chatId, "❗ Por favor, ingresa un código de producto válido.");
     }
     res.status(200).send('OK');
     return;
@@ -349,7 +475,7 @@ app.post("/telegram", async (req, res) => {
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`);
+    await sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`);
 
     processCommandQueue(); // Kick off processing if not already running
 
