@@ -98,17 +98,13 @@ function escapeMarkdownV2(text) {
 function parseProductLookup(jsonOutput) {
   try {
     const data = JSON.parse(jsonOutput);
-    let productData;
+    let productData = data
     let groupProducts = [];
 
     // Check if we have a group structure or a single product
     if (data.group && data.groupProducts && Array.isArray(data.groupProducts)) {
       // We have a group structure
-      productData = data.groupProducts[0]; // Use the first product as the main one
       groupProducts = data.groupProducts.slice(1); // Rest of the products
-    } else {
-      // Single product
-      productData = data;
     }
 
     // Format the message with emoji and organized sections
