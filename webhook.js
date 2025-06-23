@@ -104,7 +104,7 @@ function parseProductLookup(jsonOutput) {
     // Check if we have a group structure or a single product
     if (data.group && data.groupProducts && Array.isArray(data.groupProducts)) {
       // We have a group structure
-      groupProducts = data.groupProducts.slice(1); // Rest of the products
+      groupProducts = data.groupProducts;
     }
 
     // Format the message with emoji and organized sections
