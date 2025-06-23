@@ -97,7 +97,19 @@ function escapeMarkdownV2(text) {
 // Parse product lookup JSON output and return formatted message and image URL
 function parseProductLookup(jsonOutput) {
   try {
-    const productData = JSON.parse(jsonOutput);
+    const data = JSON.parse(jsonOutput);
+    let productData;
+    let groupProducts = [];
+    
+    // Check if we have a group structure or a single product
+    if (data.group && data.groupProducts && Array.isArray(data.groupProducts)) {
+      // We have a group structure
+      productData = data.groupProducts[0]; // Use the first product as the main one
+      groupProducts = data.groupProducts.slice(1); // Rest of the products
+    } else {
+      // Single product
+      productData = data;
+    }
 
     // Format the message with emoji and organized sections
     const formattedMessage = [
@@ -112,10 +124,27 @@ function parseProductLookup(jsonOutput) {
       `💰 Precio de Compra: $${productData["Precio de Compra"]}`,
       `💵 Precio de Venta: $${productData.Monto}`,
       `${productData.Operacion === 'DISPONIBLE' ? '✅' : productData.Operacion === 'VENDIDO' ? '💰' : productData.Operacion === 'APARTADO' ? '🔒' : '🔄'} Estado: ${productData.Operacion}`
-    ].join('\n');
+    ];
+
+    // Add other products in the same group if any
+    if (groupProducts.length > 0) {
+      formattedMessage.push('');
+      formattedMessage.push('📦 Otros productos del mismo grupo:');
+      
+      // Create a compact list of the other products
+      groupProducts.forEach(product => {
+        const statusEmoji = product.Operacion === 'DISPONIBLE' ? '✅' : 
+                          product.Operacion === 'VENDIDO' ? '💰' : 
+                          product.Operacion === 'APARTADO' ? '🔒' : '🔄';
+        
+        formattedMessage.push(
+          `${statusEmoji} ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`
+        );
+      });
+    }
 
     return {
-      message: formattedMessage,
+      message: formattedMessage.join('\n'),
       imageUrl: productData.Image || null
     };
   } catch (error) {
