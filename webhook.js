@@ -332,6 +332,12 @@ async function processCommandQueue() {
 const chatStates = {};
 
 app.post("/telegram", async (req, res) => {
+  if (!req.body.message) {
+    res.status(400).send('Bad Request');
+    return;
+  }
+
+  console.log("CHAT full request", req.body);
   const chatId = req.body.message.chat.id;
   const userCommand = req.body.message.text;
 
@@ -429,7 +435,7 @@ app.post("/telegram", async (req, res) => {
       await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑");
       delete chatStates[chatId];
       // Enqueue a report generation job
-      const appPath = '/home/wuilliam/.local/bin/node-v21.7.1-linux-x64/bin/node'; // Or from config
+      const appPath = '/home/wuilliam/.nvm/versions/node/v20.16.0/bin/node'; // Or from config
       const scriptPath = '/home/wuilliam/proyectos/7db-inventariodb/analize_short.js'; // Or from config
       const args = [scriptPath, '--period', `${userCommand.trim()}`, '--ai', 'true'];
       const job = {
@@ -457,7 +463,7 @@ app.post("/telegram", async (req, res) => {
       await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`);
       delete chatStates[chatId];
       // Enqueue a product lookup job
-      const appPath = '/home/wuilliam/.local/bin/node-v21.7.1-linux-x64/bin/node'; // Or from config
+      const appPath = '/home/wuilliam/.nvm/versions/node/v20.16.0/bin/node'; // Or from config
       const scriptPath = '/home/wuilliam/proyectos/7db-inventariodb/product_lookup.js'; // Or from config
       const args = [scriptPath, '--code', `${userCommand.trim()}`];
       const job = {
@@ -486,7 +492,12 @@ app.post("/telegram", async (req, res) => {
     // Note: In runCommandAsync, the scriptPath was the first element of the args array.
     // The new processCommandQueue job structure has `args` which is directly passed to runCommandAsync.
     // So, scriptPath should be the first element in this args array.
-    const args = [scriptPath, '--mode=stdin', `--spending=${userCommand}`];
+
+    // Append source:1 and the phone number to the user command
+    const phone = req.body.message.from ? req.body.message.from.phone_number || req.body.message.from.id || "unknown" : "unknown";
+    const modifiedCommand = `${userCommand} source:${phone}`;
+
+    const args = [scriptPath, '--mode=stdin', `--spending=${modifiedCommand}`, '--sheets'];
 
     const job = {
       chatId: chatId,
