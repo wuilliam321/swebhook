@@ -149,7 +149,7 @@ function escapeMarkdownV2(text) {
 }
 
 // Parse product lookup JSON output and return formatted message and image URL
-function parseProductLookup(jsonOutput) {
+function parseProductLookup(jsonOutput, isGroupChat = false) {
   try {
     const data = JSON.parse(jsonOutput);
     let productData = data
@@ -170,27 +170,71 @@ function parseProductLookup(jsonOutput) {
       ``,
       `💼 Proveedor: ${productData.Proveedor}`,
       `🏪 Tienda: ${productData.Tienda}`,
-      ``,
-      `💰 Precio de Compra: $${productData["Precio de Compra"]}`,
-      `💵 Precio de Venta: $${productData.Monto}`,
-      `${productData.Operacion === 'APARTADO' ? '🔒' : productData.Operacion === 'VENDIDO' ? '💰' : productData.Operacion === 'DISPONIBLE' ? '✅' : '🔄'} Estado: ${productData.Operacion}`
+      ``
     ];
+    
+    // Only show purchase price in private chats
+    if (!isGroupChat) {
+      formattedMessage.push(`💰 Precio de Compra: $${productData["Precio de Compra"]}`);
+    }
+    
+    formattedMessage.push(`💵 Precio de Venta: $${productData.Monto}`);
+    formattedMessage.push(`${productData.Operacion === 'APARTADO' ? '🔒' : productData.Operacion === 'VENDIDO' ? '❌' : productData.Operacion === 'DISPONIBLE' ? '✅' : '🔄'} Estado: ${productData.Operacion}`);
+    
 
     // Add other products in the same group if any
     if (groupProducts.length > 0) {
       formattedMessage.push('');
       formattedMessage.push('📦 Otros productos del mismo grupo:');
 
-      // Create a compact list of the other products
+      // Group products by their status for more compact display
+      const productsByStatus = {
+        'DISPONIBLE': [],
+        'APARTADO': [],
+        'VENDIDO': [],
+        'other': []
+      };
+      
+      // Sort products into groups by status
       groupProducts.forEach(product => {
-        const statusEmoji = product.Operacion === 'APARTADO' ? '🔒' :
-          product.Operacion === 'VENDIDO' ? '💰' :
-            product.Operacion === 'DISPONIBLE' ? '✅' : '🔄';
-
-        formattedMessage.push(
-          `${statusEmoji} ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`
-        );
+        if (productsByStatus[product.Operacion]) {
+          productsByStatus[product.Operacion].push(product);
+        } else {
+          productsByStatus.other.push(product);
+        }
       });
+      
+      // Display available products first
+      if (productsByStatus.DISPONIBLE.length > 0) {
+        const availableList = productsByStatus.DISPONIBLE.map(
+          p => `${p.Codigo}(${p.Talla}/${p.Color}/${p.Tienda})`
+        ).join(', ');
+        formattedMessage.push(`✅ Disponibles: ${availableList}`);
+      }
+      
+      // Display reserved products
+      if (productsByStatus.APARTADO.length > 0) {
+        const reservedList = productsByStatus.APARTADO.map(
+          p => `${p.Codigo}(${p.Talla}/${p.Color}/${p.Tienda})`
+        ).join(', ');
+        formattedMessage.push(`🔒 Apartados: ${reservedList}`);
+      }
+      
+      // Display sold products
+      if (productsByStatus.VENDIDO.length > 0) {
+        const soldList = productsByStatus.VENDIDO.map(
+          p => `${p.Codigo}(${p.Talla}/${p.Color}/${p.Tienda})`
+        ).join(', ');
+        formattedMessage.push(`❌ Vendidos: ${soldList}`);
+      }
+      
+      // Display other status products
+      if (productsByStatus.other.length > 0) {
+        const otherList = productsByStatus.other.map(
+          p => `${p.Codigo}(${p.Talla}/${p.Color}/${p.Tienda})[${p.Operacion}]`
+        ).join(', ');
+        formattedMessage.push(`🔄 Otros: ${otherList}`);
+      }
     }
 
     return {
@@ -224,9 +268,9 @@ async function sendTelegramMessage(chatId, message, token = TELEGRAM_TOKEN) {
 }
 
 // Function to send product details with image
-async function sendProductDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN) {
+async function sendProductDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN, isGroupChat = false) {
   try {
-    const { message, imageUrl } = parseProductLookup(jsonOutput);
+    const { message, imageUrl } = parseProductLookup(jsonOutput, isGroupChat);
 
     // If we have an image URL, send photo with caption
     if (imageUrl) {
@@ -308,7 +352,17 @@ async function processCommandQueue() {
       // Default to pagomovil processing
       const result = await runCommandAsync(appPath, args);
       console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
-      await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${result.stdout}`, token);
+      
+      // Process output to remove Saldo lines if in group chat
+      let output = result.stdout;
+      if (job.isGroupChat) {
+        // Filter out Saldo lines from the output
+        output = output.split('\n')
+          .filter(line => !line.includes('💳 Saldo:'))
+          .join('\n');
+      }
+      
+      await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${output}`, token);
 
       console.log(`Pagomovil search completed successfully for ${originalMessageText}`);
     }
@@ -334,7 +388,7 @@ async function processCommandQueue() {
       console.log(`Product lookup job for ${originalMessageText} completed. stdout:`, result.stdout);
 
       // Use specialized function to send product details with image
-      await sendProductDetails(chatId, result.stdout, token);
+      await sendProductDetails(chatId, result.stdout, token, job.isGroupChat);
       console.log(`Product lookup completed successfully for ${originalMessageText}`);
     }
   } catch (errorOutcome) {
@@ -472,7 +526,8 @@ app.post("/telegram", async (req, res) => {
       args: args,
       originalMessageText: userCommandRaw,
       jobType: 'pagomovil',
-      botToken: botToken
+      botToken: botToken,
+      isGroupChat: isGroupChat
     };
     commandQueue.push(job);
 
@@ -497,7 +552,8 @@ app.post("/telegram", async (req, res) => {
       args: args,
       originalMessageText: userCommandRaw,
       jobType: 'pagomovil',
-      botToken: botToken
+      botToken: botToken,
+      isGroupChat: isGroupChat
     };
     commandQueue.push(job);
 
@@ -600,6 +656,7 @@ app.post("/telegram", async (req, res) => {
         jobType: 'product_lookup',
         onStdout: parseProductLookup,
         botToken: storedBotToken,
+        isGroupChat: isGroupChat
       };
       commandQueue.push(job);
       // Feedback to user is already sent above
