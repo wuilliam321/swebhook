@@ -168,7 +168,6 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
       `🎨 Color: ${productData.Color}`,
       `📏 Talla: ${productData.Talla}`,
       ``,
-      `💼 Proveedor: ${productData.Proveedor}`,
       `🏪 Tienda: ${productData.Tienda}`,
       ``
     ];
@@ -185,7 +184,7 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
     // Add other products in the same group if any
     if (groupProducts.length > 0) {
       formattedMessage.push('');
-      formattedMessage.push('📦 Otros productos del mismo grupo:');
+      formattedMessage.push('📦 Otros del mismo grupo:');
 
       // Group products by their status for better organization
       const productsByStatus = {
@@ -208,28 +207,28 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
       if (productsByStatus.DISPONIBLE.length > 0) {
         formattedMessage.push(`✅ Disponibles:`);
         productsByStatus.DISPONIBLE.forEach(product => {
-          formattedMessage.push(`   ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`);
+          formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
         });
       }
       
       if (productsByStatus.APARTADO.length > 0) {
         formattedMessage.push(`🔒 Apartados:`);
         productsByStatus.APARTADO.forEach(product => {
-          formattedMessage.push(`   ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`);
+          formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
         });
       }
       
       if (productsByStatus.VENDIDO.length > 0) {
         formattedMessage.push(`❌ Vendidos:`);
         productsByStatus.VENDIDO.forEach(product => {
-          formattedMessage.push(`   ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`);
+          formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
         });
       }
       
       if (productsByStatus.other.length > 0) {
         formattedMessage.push(`🔄 Otros:`);
         productsByStatus.other.forEach(product => {
-          formattedMessage.push(`   ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda} [${product.Operacion}]`);
+          formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda} [${product.Operacion}]`);
         });
       }
     }
