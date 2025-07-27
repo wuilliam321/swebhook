@@ -709,8 +709,9 @@ app.post("/telegram", async (req, res) => {
       // For groups, show only group-appropriate commands
       const keyboard = isGroupChat ? 
         [
-          [{"text": "/consulta_codigo"}], 
-          [{"text": "/pagomovil_wuilliam"}, {"text": "/pagomovil_gilza"}]
+          [{"text": "/consulta_codigo@septimodiaboutique_bot"}], 
+          [{"text": "/pagomovil_wuilliam@septimodiaboutique_bot"}],
+          [{"text": "/pagomovil_gilza@septimodiaboutique_bot"}],
         ] :
         [
           [{"text": "/gasto"}, {"text": "/consulta_codigo"}],
