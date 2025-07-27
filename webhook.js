@@ -384,6 +384,7 @@ async function processCommandQueue() {
   }
 }
 
+// Enhanced chat state structure to store bot information
 const chatStates = {};
 
 app.post("/telegram", async (req, res) => {
@@ -435,7 +436,11 @@ app.post("/telegram", async (req, res) => {
 
   // --- /gasto command ---
   if (userCommand === "/gasto") {
-    chatStates[chatId] = "WAITING_FOR_AMOUNT";
+    chatStates[chatId] = {
+      state: "WAITING_FOR_AMOUNT",
+      botName: botName,
+      botToken: botToken
+    };
     await sendTelegramMessage(chatId, "💰 ¿Cuánto gastaste y en qué?", botToken);
     res.status(200).send('OK');
     return;
@@ -493,7 +498,11 @@ app.post("/telegram", async (req, res) => {
 
   // --- /report command: Step 1 ---
   if (userCommand === "/report") {
-    chatStates[chatId] = "WAITING_FOR_REPORT_OPTION";
+    chatStates[chatId] = {
+      state: "WAITING_FOR_REPORT_OPTION",
+      botName: botName,
+      botToken: botToken
+    };
     await sendTelegramMessage(
       chatId,
       "📊 ¿Qué período deseas para el reporte?\n" +
@@ -512,7 +521,11 @@ app.post("/telegram", async (req, res) => {
 
   // --- /consulta_codigo command: Step 1 ---
   if (userCommand === "/consulta_codigo") {
-    chatStates[chatId] = "WAITING_FOR_PRODUCT_CODE";
+    chatStates[chatId] = {
+      state: "WAITING_FOR_PRODUCT_CODE",
+      botName: botName,
+      botToken: botToken
+    };
     await sendTelegramMessage(chatId, "🔍 Por favor, ingresa el código del producto que deseas consultar:", botToken);
     res.status(200).send('OK');
     return;
@@ -520,12 +533,14 @@ app.post("/telegram", async (req, res) => {
 
 
   // --- /report option selection ---
-  if (chatStates[chatId] === "WAITING_FOR_REPORT_OPTION") {
+  if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_REPORT_OPTION") {
+    // Get the stored bot token for this conversation
+    const storedBotToken = chatStates[chatId].botToken || botToken;
     // Only accept numbers 0-6
     const validOptions = ["0", "1", "2", "3", "4", "5", "6"];
     if (validOptions.includes(userCommand.trim())) {
       // Feedback to user
-      await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑", botToken);
+      await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑", storedBotToken);
       delete chatStates[chatId];
       // Enqueue a report generation job
       const appPath = '/home/wuilliam/.nvm/versions/node/v20.16.0/bin/node'; // Or from config
@@ -537,24 +552,26 @@ app.post("/telegram", async (req, res) => {
         args: args,
         originalMessageText: `/report ${userCommand.trim()}`,
         jobType: 'report',
-        botToken: botToken
+        botToken: storedBotToken
       };
       commandQueue.push(job);
       delete chatStates[chatId];
       // Feedback to user is already sent above
       processCommandQueue();
     } else {
-      await sendTelegramMessage(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.", botToken);
+      await sendTelegramMessage(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.", storedBotToken);
     }
     res.status(200).send('OK');
     return;
   }
 
   // --- /consulta_codigo product code input ---
-  if (chatStates[chatId] === "WAITING_FOR_PRODUCT_CODE") {
+  if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_PRODUCT_CODE") {
+    // Get the stored bot token for this conversation
+    const storedBotToken = chatStates[chatId].botToken || botToken;
     if (userCommand.trim()) {
       // Feedback to user
-      await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`, botToken);
+      await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
       delete chatStates[chatId];
       // Enqueue a product lookup job
       const appPath = '/home/wuilliam/.nvm/versions/node/v20.16.0/bin/node'; // Or from config
@@ -567,20 +584,22 @@ app.post("/telegram", async (req, res) => {
         originalMessageText: userCommand.trim(),
         jobType: 'product_lookup',
         onStdout: parseProductLookup,
-        botToken: botToken,
+        botToken: storedBotToken,
       };
       commandQueue.push(job);
       // Feedback to user is already sent above
       processCommandQueue();
     } else {
-      await sendTelegramMessage(chatId, "❗ Por favor, ingresa un código de producto válido.", botToken);
+      await sendTelegramMessage(chatId, "❗ Por favor, ingresa un código de producto válido.", storedBotToken);
     }
     res.status(200).send('OK');
     return;
   }
 
   // --- /gasto amount input ---
-  if (chatStates[chatId] === "WAITING_FOR_AMOUNT") {
+  if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_AMOUNT") {
+    // Get the stored bot token for this conversation
+    const storedBotToken = chatStates[chatId].botToken || botToken;
     // New logic:
     const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
     const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_zsoft.py'; // Or from config
@@ -600,13 +619,13 @@ app.post("/telegram", async (req, res) => {
       args: args,
       originalMessageText: userCommand, // Store the original message for notifications
       jobType: 'gasto',
-      botToken: botToken
+      botToken: storedBotToken
     };
     commandQueue.push(job);
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    await sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`, botToken);
+    await sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`, storedBotToken);
 
     processCommandQueue(); // Kick off processing if not already running
 
