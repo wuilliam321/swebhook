@@ -187,54 +187,16 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
       formattedMessage.push('');
       formattedMessage.push('📦 Otros productos del mismo grupo:');
 
-      // Group products by their status for more compact display
-      const productsByStatus = {
-        'DISPONIBLE': [],
-        'APARTADO': [],
-        'VENDIDO': [],
-        'other': []
-      };
-      
-      // Sort products into groups by status
+      // Display one product per line with status emoji
       groupProducts.forEach(product => {
-        if (productsByStatus[product.Operacion]) {
-          productsByStatus[product.Operacion].push(product);
-        } else {
-          productsByStatus.other.push(product);
-        }
+        const statusEmoji = product.Operacion === 'APARTADO' ? '🔒' :
+          product.Operacion === 'VENDIDO' ? '❌' :
+            product.Operacion === 'DISPONIBLE' ? '✅' : '🔄';
+            
+        formattedMessage.push(
+          `${statusEmoji} ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`
+        );
       });
-      
-      // Display available products first
-      if (productsByStatus.DISPONIBLE.length > 0) {
-        const availableList = productsByStatus.DISPONIBLE.map(
-          p => `${p.Codigo}(${p.Talla}/${p.Color}/${p.Tienda})`
-        ).join(', ');
-        formattedMessage.push(`✅ Disponibles: ${availableList}`);
-      }
-      
-      // Display reserved products
-      if (productsByStatus.APARTADO.length > 0) {
-        const reservedList = productsByStatus.APARTADO.map(
-          p => `${p.Codigo}(${p.Talla}/${p.Color}/${p.Tienda})`
-        ).join(', ');
-        formattedMessage.push(`🔒 Apartados: ${reservedList}`);
-      }
-      
-      // Display sold products
-      if (productsByStatus.VENDIDO.length > 0) {
-        const soldList = productsByStatus.VENDIDO.map(
-          p => `${p.Codigo}(${p.Talla}/${p.Color}/${p.Tienda})`
-        ).join(', ');
-        formattedMessage.push(`❌ Vendidos: ${soldList}`);
-      }
-      
-      // Display other status products
-      if (productsByStatus.other.length > 0) {
-        const otherList = productsByStatus.other.map(
-          p => `${p.Codigo}(${p.Talla}/${p.Color}/${p.Tienda})[${p.Operacion}]`
-        ).join(', ');
-        formattedMessage.push(`🔄 Otros: ${otherList}`);
-      }
     }
 
     return {
