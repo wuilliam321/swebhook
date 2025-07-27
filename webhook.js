@@ -709,13 +709,13 @@ app.post("/telegram", async (req, res) => {
       // For groups, show only group-appropriate commands
       const keyboard = isGroupChat ? 
         [
-          [{"text": "/consulta_codigo"}, {"text": "/report"}],
-          [{"text": "/pagomovil_gilza"}, {"text": "/pagomovil_wuilliam"}]
+          [{"text": "/consulta_codigo"}], 
+          [{"text": "/pagomovil_wuilliam"}, {"text": "/pagomovil_gilza"}]
         ] :
         [
           [{"text": "/gasto"}, {"text": "/consulta_codigo"}],
-          [{"text": "/report"}, {"text": "/pagomovil_gilza"}],
-          [{"text": "/pagomovil_wuilliam"}]
+          [{"text": "/pagomovil_wuilliam"}, {"text": "/pagomovil_gilza"}],
+          [{"text": "/report"}]
         ];
         
       let token = isGroupChat ? getTokenForBot("septimodiaboutique_bot") : botToken;
