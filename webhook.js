@@ -704,37 +704,37 @@ app.post("/telegram", async (req, res) => {
   console.log("nothing to do for", userCommand);
 
   // If it's not a command, show a keyboard menu with available commands
-  if (!userCommand.startsWith('/')) {
-    try {
-      // For groups, show only group-appropriate commands
-      const keyboard = isGroupChat ? 
-        [
-          [{"text": "/consulta_codigo@septimodiaboutique_bot"}], 
-          [{"text": "/pagomovil_wuilliam@septimodiaboutique_bot"}],
-          [{"text": "/pagomovil_gilza@septimodiaboutique_bot"}],
-        ] :
-        [
-          [{"text": "/gasto"}, {"text": "/consulta_codigo"}],
-          [{"text": "/pagomovil_wuilliam"}, {"text": "/pagomovil_gilza"}],
-          [{"text": "/report"}]
-        ];
-        
-      let token = isGroupChat ? getTokenForBot("septimodiaboutique_bot") : botToken;
-      await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-        chat_id: chatId,
-        text: "Selecciona un comando:",
-        reply_markup: {
-          keyboard: keyboard,
-          resize_keyboard: true,
-          one_time_keyboard: false
-        }
-      });
-      
-      console.log("Sent keyboard menu to chat", chatId);
-    } catch (error) {
-      console.error("Error sending keyboard menu:", error);
-    }
-  }
+  // if (!userCommand.startsWith('/')) {
+  //   try {
+  //     // For groups, show only group-appropriate commands
+  //     const keyboard = isGroupChat ? 
+  //       [
+  //         [{"text": "/consulta_codigo@septimodiaboutique_bot"}], 
+  //         [{"text": "/pagomovil_wuilliam@septimodiaboutique_bot"}],
+  //         [{"text": "/pagomovil_gilza@septimodiaboutique_bot"}],
+  //       ] :
+  //       [
+  //         [{"text": "/gasto"}, {"text": "/consulta_codigo"}],
+  //         [{"text": "/pagomovil_wuilliam"}, {"text": "/pagomovil_gilza"}],
+  //         [{"text": "/report"}]
+  //       ];
+  //       
+  //     let token = isGroupChat ? getTokenForBot("septimodiaboutique_bot") : botToken;
+  //     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+  //       chat_id: chatId,
+  //       text: "Selecciona un comando:",
+  //       reply_markup: {
+  //         keyboard: keyboard,
+  //         resize_keyboard: true,
+  //         one_time_keyboard: false
+  //       }
+  //     });
+  //     
+  //     console.log("Sent keyboard menu to chat", chatId);
+  //   } catch (error) {
+  //     console.error("Error sending keyboard menu:", error);
+  //   }
+  // }
 
   res.status(200).send('OK');
 })
