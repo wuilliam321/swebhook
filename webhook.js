@@ -405,11 +405,26 @@ app.post("/telegram", async (req, res) => {
     return;
   }
   const chatId = req.body.message.chat.id;
-  const userCommandRaw = req.body.message.text;
   
   // Determine if this is a group chat
   const isGroupChat = req.body.message.chat.type === 'group' 
     || req.body.message.chat.type === 'supergroup';
+    
+  // Handle non-text messages (new chat members, photos, etc.)
+  if (!req.body.message.text) {
+    console.log("Received non-text message", 
+      req.body.message.new_chat_member ? "new_chat_member" : 
+      req.body.message.new_chat_members ? "new_chat_members" : 
+      "unknown message type", 
+      isGroupChat ? "(group chat)" : "(private chat)");
+    
+    // We could add welcome messages or other handling here if needed
+    
+    res.status(200).send('OK'); // Acknowledge receipt
+    return;
+  }
+  
+  const userCommandRaw = req.body.message.text;
   
   // Extract bot name and base command if present
   const botName = extractBotName(userCommandRaw);
