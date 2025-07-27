@@ -703,6 +703,37 @@ app.post("/telegram", async (req, res) => {
 
   console.log("nothing to do for", userCommand);
 
+  // If it's not a command, show a keyboard menu with available commands
+  if (!userCommand.startsWith('/')) {
+    try {
+      // For groups, show only group-appropriate commands
+      const keyboard = isGroupChat ? 
+        [
+          [{"text": "/consulta_codigo"}, {"text": "/report"}],
+          [{"text": "/pagomovil_gilza"}, {"text": "/pagomovil_wuilliam"}]
+        ] :
+        [
+          [{"text": "/gasto"}, {"text": "/consulta_codigo"}],
+          [{"text": "/report"}, {"text": "/pagomovil_gilza"}],
+          [{"text": "/pagomovil_wuilliam"}]
+        ];
+        
+      await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        chat_id: chatId,
+        text: "Selecciona un comando:",
+        reply_markup: {
+          keyboard: keyboard,
+          resize_keyboard: true,
+          one_time_keyboard: false
+        }
+      });
+      
+      console.log("Sent keyboard menu to chat", chatId);
+    } catch (error) {
+      console.error("Error sending keyboard menu:", error);
+    }
+  }
+
   res.status(200).send('OK');
 })
 
