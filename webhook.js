@@ -7,6 +7,60 @@ app.use(express.json());
 
 const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, GENERATOR_URL, TELEGRAM_TOKEN } = process.env;
 
+// Bot token management - dynamically load from environment variables
+const BOT_TOKENS = {};
+
+// Load all bot tokens from environment variables using a naming pattern
+Object.keys(process.env).forEach(key => {
+  if (key.startsWith('TELEGRAM_TOKEN_')) {
+    const botName = key.replace('TELEGRAM_TOKEN_', '').toLowerCase();
+    BOT_TOKENS[botName] = process.env[key];
+  }
+});
+
+// Add default token
+BOT_TOKENS.default = TELEGRAM_TOKEN;
+
+// Validate required tokens at startup
+const requiredBots = ['septimodiaboutique_bot'];
+requiredBots.forEach(botName => {
+  const token = BOT_TOKENS[botName.toLowerCase()];
+  if (!token) {
+    console.warn(`Warning: Missing token for bot '${botName}'. Environment variable TELEGRAM_TOKEN_${botName.toUpperCase()} is not set.`);
+  }
+});
+
+// Extract bot name from commands with format /command@botname
+function extractBotName(command) {
+  if (!command) return null;
+  const atIndex = command.indexOf('@');
+  if (atIndex !== -1) {
+    return command.substring(atIndex + 1).toLowerCase();
+  }
+  return null;
+}
+
+// Extract base command from /command@botname format
+function extractBaseCommand(command) {
+  if (!command) return command;
+  const atIndex = command.indexOf('@');
+  if (atIndex !== -1) {
+    return command.substring(0, atIndex);
+  }
+  return command;
+}
+
+// Get token for a specific bot name
+function getTokenForBot(botName) {
+  if (!botName) return BOT_TOKENS.default;
+  return BOT_TOKENS[botName.toLowerCase()] || BOT_TOKENS.default;
+}
+
+// Check if a bot name is valid
+function isValidBotName(botName) {
+  return botName && (BOT_TOKENS[botName.toLowerCase()] !== undefined);
+}
+
 const commandQueue = [];
 let isProcessingCommand = false;
 
@@ -152,9 +206,9 @@ function parseProductLookup(jsonOutput) {
   }
 }
 
-async function sendTelegramMessage(chatId, message) {
+async function sendTelegramMessage(chatId, message, token = TELEGRAM_TOKEN) {
   const escapedOutput = escapeMarkdownV2(message);
-  return axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+  return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
     chat_id: chatId,
     text: escapedOutput,
     parse_mode: 'MarkdownV2'
@@ -170,13 +224,13 @@ async function sendTelegramMessage(chatId, message) {
 }
 
 // Function to send product details with image
-async function sendProductDetails(chatId, jsonOutput) {
+async function sendProductDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN) {
   try {
     const { message, imageUrl } = parseProductLookup(jsonOutput);
 
     // If we have an image URL, send photo with caption
     if (imageUrl) {
-      return axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendPhoto`, {
+      return axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, {
         chat_id: chatId,
         photo: imageUrl,
         caption: escapeMarkdownV2(message),
@@ -189,15 +243,15 @@ async function sendProductDetails(chatId, jsonOutput) {
         .catch(error => {
           console.error(`Error al enviar mensaje de producto con imagen:`, error);
           // Fallback to text-only message if sending image fails
-          return sendTelegramMessage(chatId, message);
+          return sendTelegramMessage(chatId, message, token);
         });
     } else {
       // If no image URL, send text-only message
-      return sendTelegramMessage(chatId, message);
+      return sendTelegramMessage(chatId, message, token);
     }
   } catch (error) {
     console.error('Error sending product details:', error);
-    return sendTelegramMessage(chatId, `❌ Error al enviar detalles del producto: ${error.message}`);
+    return sendTelegramMessage(chatId, `❌ Error al enviar detalles del producto: ${error.message}`, token);
   }
 }
 
@@ -243,7 +297,8 @@ async function processCommandQueue() {
     return;
   }
 
-  const { chatId, appPath, args, originalMessageText, jobType } = job;
+  const { chatId, appPath, args, originalMessageText, jobType, botToken } = job;
+  const token = botToken || TELEGRAM_TOKEN; // Use provided token or default
 
   console.log(`Processing job for chatId ${chatId}: ${originalMessageText} (type: ${jobType || 'gasto'})`);
 
@@ -253,7 +308,7 @@ async function processCommandQueue() {
       // Default to pagomovil processing
       const result = await runCommandAsync(appPath, args);
       console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
-      await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${result.stdout}`);
+      await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${result.stdout}`, token);
 
       console.log(`Pagomovil search completed successfully for ${originalMessageText}`);
     }
@@ -262,14 +317,14 @@ async function processCommandQueue() {
       // Default to gasto processing
       const result = await runCommandAsync(appPath, args);
       console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
-      await sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`);
+      await sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`, token);
     }
 
     if (jobType === 'report') {
       // Handle report generation job
       const result = await runCommandAsync(appPath, args);
       console.log(`Report job for ${originalMessageText} completed. stdout:`, result.stdout);
-      await sendTelegramMessage(chatId, `📊 Reporte generado:\n\n${result.stdout}`);
+      await sendTelegramMessage(chatId, `📊 Reporte generado:\n\n${result.stdout}`, token);
     }
 
     if (jobType === 'product_lookup') {
@@ -279,46 +334,46 @@ async function processCommandQueue() {
       console.log(`Product lookup job for ${originalMessageText} completed. stdout:`, result.stdout);
 
       // Use specialized function to send product details with image
-      await sendProductDetails(chatId, result.stdout);
+      await sendProductDetails(chatId, result.stdout, token);
       console.log(`Product lookup completed successfully for ${originalMessageText}`);
     }
   } catch (errorOutcome) {
     console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
 
     if (jobType === 'pagomovil') {
-      await sendTelegramMessage(chatId, `❌ Error inesperado buscando pagomovil: ${errorOutcome.message || 'Error desconocido'}`);
+      await sendTelegramMessage(chatId, `❌ Error inesperado buscando pagomovil: ${errorOutcome.message || 'Error desconocido'}`, token);
     }
 
     if (jobType === 'gasto') {
       // Handle gasto errors as before
       if (errorOutcome.error && errorOutcome.error.message) {
-        await sendTelegramMessage(chatId, `❌ Error al registrar "${originalMessageText}": ${errorOutcome.error.message}`);
+        await sendTelegramMessage(chatId, `❌ Error al registrar "${originalMessageText}": ${errorOutcome.error.message}`, token);
       } else if (errorOutcome.stderr) {
-        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al registrar "${originalMessageText}": ${errorOutcome.stderr}`);
+        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al registrar "${originalMessageText}": ${errorOutcome.stderr}`, token);
       } else {
-        await sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`);
+        await sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`, token);
       }
     }
 
     if (jobType === 'report') {
       // Handle report errors
       if (errorOutcome.error && errorOutcome.error.message) {
-        await sendTelegramMessage(chatId, `❌ Error al generar el reporte: ${errorOutcome.error.message}`);
+        await sendTelegramMessage(chatId, `❌ Error al generar el reporte: ${errorOutcome.error.message}`, token);
       } else if (errorOutcome.stderr) {
-        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al generar el reporte: ${errorOutcome.stderr}`);
+        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al generar el reporte: ${errorOutcome.stderr}`, token);
       } else {
-        await sendTelegramMessage(chatId, `❌ Error desconocido al generar el reporte`);
+        await sendTelegramMessage(chatId, `❌ Error desconocido al generar el reporte`, token);
       }
     }
 
     if (jobType === 'product_lookup') {
       // Handle product lookup errors
       if (errorOutcome.error && errorOutcome.error.message) {
-        await sendTelegramMessage(chatId, `❌ Error al consultar el producto: ${errorOutcome.error.message}`);
+        await sendTelegramMessage(chatId, `❌ Error al consultar el producto: ${errorOutcome.error.message}`, token);
       } else if (errorOutcome.stderr) {
-        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al consultar el producto: ${errorOutcome.stderr}`);
+        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al consultar el producto: ${errorOutcome.stderr}`, token);
       } else {
-        await sendTelegramMessage(chatId, `❌ Error desconocido al consultar el producto`);
+        await sendTelegramMessage(chatId, `❌ Error desconocido al consultar el producto`, token);
       }
     }
   } finally {
@@ -332,21 +387,56 @@ async function processCommandQueue() {
 const chatStates = {};
 
 app.post("/telegram", async (req, res) => {
-  if (!req.body.message) {
-    res.status(400).send('Bad Request');
+  console.log("CHAT full request", req.body);
+  
+  // Handle different types of Telegram updates
+  // my_chat_member updates occur when bot is added/removed from groups
+  if (req.body.my_chat_member) {
+    console.log("Received my_chat_member update", req.body.my_chat_member);
+    res.status(200).send('OK'); // Acknowledge receipt
     return;
   }
-
-  console.log("CHAT full request", req.body);
+  
+  // Handle other update types like callback_query, edited_message, etc.
+  if (!req.body.message) {
+    console.log("Received non-message update", Object.keys(req.body));
+    res.status(200).send('OK'); // Acknowledge receipt
+    return;
+  }
   const chatId = req.body.message.chat.id;
-  const userCommand = req.body.message.text;
-
-  console.log("CHAT req", userCommand);
+  const userCommandRaw = req.body.message.text;
+  
+  // Determine if this is a group chat
+  const isGroupChat = req.body.message.chat.type === 'group' 
+    || req.body.message.chat.type === 'supergroup';
+  
+  // Extract bot name and base command if present
+  const botName = extractBotName(userCommandRaw);
+  const userCommand = extractBaseCommand(userCommandRaw);
+  
+  // Get token for this bot
+  const botToken = botName ? getTokenForBot(botName) : TELEGRAM_TOKEN;
+  
+  // Log details about the incoming command
+  console.log(
+    "CHAT req:", 
+    userCommandRaw, 
+    botName ? `(bot: ${botName})` : '',
+    isGroupChat ? '(group chat)' : '(private chat)',
+    isValidBotName(botName) ? '(valid bot)' : botName ? '(unknown bot)' : ''
+  );
+  
+  // Validate bot name in group chats - commands in group chats should include valid bot name
+  if (isGroupChat && userCommandRaw.startsWith('/') && botName && !isValidBotName(botName)) {
+    console.log(`Ignoring command with unknown bot name: ${botName}`);
+    res.status(200).send('OK');
+    return;
+  }
 
   // --- /gasto command ---
   if (userCommand === "/gasto") {
     chatStates[chatId] = "WAITING_FOR_AMOUNT";
-    await sendTelegramMessage(chatId, "💰 ¿Cuánto gastaste y en qué?");
+    await sendTelegramMessage(chatId, "💰 ¿Cuánto gastaste y en qué?", botToken);
     res.status(200).send('OK');
     return;
   }
@@ -360,14 +450,15 @@ app.post("/telegram", async (req, res) => {
       chatId: chatId,
       appPath: appPath,
       args: args,
-      originalMessageText: userCommand,
+      originalMessageText: userCommandRaw,
       jobType: 'pagomovil',
+      botToken: botToken
     };
     commandQueue.push(job);
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    await sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Wuilliam en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
+    await sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Wuilliam en BBVA Provincial. Te avisaré cuando esté listo. 🔍", botToken);
 
     processCommandQueue(); // Kick off processing if not already running
 
@@ -384,14 +475,15 @@ app.post("/telegram", async (req, res) => {
       chatId: chatId,
       appPath: appPath,
       args: args,
-      originalMessageText: userCommand,
-      jobType: 'pagomovil'
+      originalMessageText: userCommandRaw,
+      jobType: 'pagomovil',
+      botToken: botToken
     };
     commandQueue.push(job);
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    await sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Gilza en BBVA Provincial. Te avisaré cuando esté listo. 🔍");
+    await sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Gilza en BBVA Provincial. Te avisaré cuando esté listo. 🔍", botToken);
 
     processCommandQueue(); // Kick off processing if not already running
 
@@ -411,7 +503,8 @@ app.post("/telegram", async (req, res) => {
       "[3] 🗓️ Mes actual\n" +
       "[4] 📆 Mes pasado\n" +
       "[5] 📊 Trimestre actual\n" +
-      "[6] 📈 Trimestre pasado"
+      "[6] 📈 Trimestre pasado",
+      botToken
     );
     res.status(200).send('OK');
     return;
@@ -420,7 +513,7 @@ app.post("/telegram", async (req, res) => {
   // --- /consulta_codigo command: Step 1 ---
   if (userCommand === "/consulta_codigo") {
     chatStates[chatId] = "WAITING_FOR_PRODUCT_CODE";
-    await sendTelegramMessage(chatId, "🔍 Por favor, ingresa el código del producto que deseas consultar:");
+    await sendTelegramMessage(chatId, "🔍 Por favor, ingresa el código del producto que deseas consultar:", botToken);
     res.status(200).send('OK');
     return;
   }
@@ -432,7 +525,7 @@ app.post("/telegram", async (req, res) => {
     const validOptions = ["0", "1", "2", "3", "4", "5", "6"];
     if (validOptions.includes(userCommand.trim())) {
       // Feedback to user
-      await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑");
+      await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑", botToken);
       delete chatStates[chatId];
       // Enqueue a report generation job
       const appPath = '/home/wuilliam/.nvm/versions/node/v20.16.0/bin/node'; // Or from config
@@ -443,14 +536,15 @@ app.post("/telegram", async (req, res) => {
         appPath: appPath,
         args: args,
         originalMessageText: `/report ${userCommand.trim()}`,
-        jobType: 'report'
+        jobType: 'report',
+        botToken: botToken
       };
       commandQueue.push(job);
       delete chatStates[chatId];
       // Feedback to user is already sent above
       processCommandQueue();
     } else {
-      await sendTelegramMessage(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.");
+      await sendTelegramMessage(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.", botToken);
     }
     res.status(200).send('OK');
     return;
@@ -460,7 +554,7 @@ app.post("/telegram", async (req, res) => {
   if (chatStates[chatId] === "WAITING_FOR_PRODUCT_CODE") {
     if (userCommand.trim()) {
       // Feedback to user
-      await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`);
+      await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`, botToken);
       delete chatStates[chatId];
       // Enqueue a product lookup job
       const appPath = '/home/wuilliam/.nvm/versions/node/v20.16.0/bin/node'; // Or from config
@@ -473,12 +567,13 @@ app.post("/telegram", async (req, res) => {
         originalMessageText: userCommand.trim(),
         jobType: 'product_lookup',
         onStdout: parseProductLookup,
+        botToken: botToken,
       };
       commandQueue.push(job);
       // Feedback to user is already sent above
       processCommandQueue();
     } else {
-      await sendTelegramMessage(chatId, "❗ Por favor, ingresa un código de producto válido.");
+      await sendTelegramMessage(chatId, "❗ Por favor, ingresa un código de producto válido.", botToken);
     }
     res.status(200).send('OK');
     return;
@@ -504,13 +599,14 @@ app.post("/telegram", async (req, res) => {
       appPath: appPath,
       args: args,
       originalMessageText: userCommand, // Store the original message for notifications
-      jobType: 'gasto'
+      jobType: 'gasto',
+      botToken: botToken
     };
     commandQueue.push(job);
 
     delete chatStates[chatId]; // Delete state *after* queuing the job.
 
-    await sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`);
+    await sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`, botToken);
 
     processCommandQueue(); // Kick off processing if not already running
 
