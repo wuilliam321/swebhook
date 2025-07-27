@@ -718,7 +718,8 @@ app.post("/telegram", async (req, res) => {
           [{"text": "/pagomovil_wuilliam"}]
         ];
         
-      await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      let token = isGroupChat ? getTokenForBot("septimodiaboutique_bot") : botToken;
+      await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
         chat_id: chatId,
         text: "Selecciona un comando:",
         reply_markup: {
