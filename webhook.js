@@ -187,16 +187,51 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
       formattedMessage.push('');
       formattedMessage.push('📦 Otros productos del mismo grupo:');
 
-      // Display one product per line with status emoji
+      // Group products by their status for better organization
+      const productsByStatus = {
+        'DISPONIBLE': [],
+        'APARTADO': [],
+        'VENDIDO': [],
+        'other': []
+      };
+      
+      // Sort products into groups by status
       groupProducts.forEach(product => {
-        const statusEmoji = product.Operacion === 'APARTADO' ? '🔒' :
-          product.Operacion === 'VENDIDO' ? '❌' :
-            product.Operacion === 'DISPONIBLE' ? '✅' : '🔄';
-            
-        formattedMessage.push(
-          `${statusEmoji} ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`
-        );
+        if (productsByStatus[product.Operacion]) {
+          productsByStatus[product.Operacion].push(product);
+        } else {
+          productsByStatus.other.push(product);
+        }
       });
+      
+      // Display products grouped by status, one per line
+      if (productsByStatus.DISPONIBLE.length > 0) {
+        formattedMessage.push(`✅ Disponibles:`);
+        productsByStatus.DISPONIBLE.forEach(product => {
+          formattedMessage.push(`   ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`);
+        });
+      }
+      
+      if (productsByStatus.APARTADO.length > 0) {
+        formattedMessage.push(`🔒 Apartados:`);
+        productsByStatus.APARTADO.forEach(product => {
+          formattedMessage.push(`   ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`);
+        });
+      }
+      
+      if (productsByStatus.VENDIDO.length > 0) {
+        formattedMessage.push(`❌ Vendidos:`);
+        productsByStatus.VENDIDO.forEach(product => {
+          formattedMessage.push(`   ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda}`);
+        });
+      }
+      
+      if (productsByStatus.other.length > 0) {
+        formattedMessage.push(`🔄 Otros:`);
+        productsByStatus.other.forEach(product => {
+          formattedMessage.push(`   ${product.Codigo} - ${product.Talla} - ${product.Color} - ${product.Tienda} [${product.Operacion}]`);
+        });
+      }
     }
 
     return {
