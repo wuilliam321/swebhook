@@ -40,13 +40,22 @@ function extractBotName(command) {
   return null;
 }
 
-// Extract base command from /command@botname format
+// Extract base command from /command@botname or /command_bot format
 function extractBaseCommand(command) {
   if (!command) return command;
+  
+  // Check for @botname format
   const atIndex = command.indexOf('@');
   if (atIndex !== -1) {
     return command.substring(0, atIndex);
   }
+  
+  // Check for _bot suffix
+  const botSuffix = "_bot";
+  if (command.endsWith(botSuffix)) {
+    return command.substring(0, command.length - botSuffix.length);
+  }
+  
   return command;
 }
 
