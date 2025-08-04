@@ -47,7 +47,7 @@ function extractBaseCommand(command) {
   // Check for @botname format
   const atIndex = command.indexOf('@');
   if (atIndex !== -1) {
-    return command.substring(0, atIndex);
+    command = command.substring(0, atIndex);
   }
   
   // Check for _bot suffix
