@@ -525,7 +525,7 @@ app.post("/telegram", async (req, res) => {
   if (userCommand === "/pagomovil_wuilliam") {
     const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
     const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_pagomovil.py'; // Or from config
-    const args = [scriptPath, '--account=wuilliam', '--group=' + (isGroupChat ? 'yes' : 'no')];
+    const args = [scriptPath, '--account=wuilliam', '--group=' + (isGroupChat ? 'true' : 'false')];
     const job = {
       chatId: chatId,
       appPath: appPath,

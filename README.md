@@ -41,3 +41,29 @@ TELEGRAM_TOKEN=
 - `/pagomovil_wuilliam` - Check Wuilliam's PagoMóvil transactions
 
 - `/pagomovil_gilza` - Check Gilza's PagoMóvil transactions
+
+## Set My Commands
+
+```sh
+curl --location 'https://api.telegram.org/bot<TOKEN>/setMyCommands' \
+--header 'Content-Type: application/json' \
+--data '{
+    "commands": [
+        {
+            "command": "pagomovil_wuilliam_bot",
+            "description": "Wuilliam PagoMovil"
+        },
+        {
+            "command": "pagomovil_gilza_bot",
+            "description": "Gilza PagoMovil"
+        },
+        {
+            "command": "consulta_codigo_bot",
+            "description": "Consultar codigo"
+        }
+    ],
+    "scope": {
+        "type": "all_group_chats"
+    }
+}'
+```
