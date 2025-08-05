@@ -359,7 +359,7 @@ async function processCommandQueue() {
       console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
       
       // Process output to remove Saldo lines if in group chat
-      let output = result.stdout;
+      let output = result.stdout.trim();
       if (job.isGroupChat) {
         // Filter out Saldo lines from the output
         output = output.split('\n')
@@ -368,7 +368,7 @@ async function processCommandQueue() {
           .join('\n');
       }
       
-      await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${output}`, token);
+      await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n${output}`, token);
 
       console.log(`Pagomovil search completed successfully for ${originalMessageText}`);
     }
