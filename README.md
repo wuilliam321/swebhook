@@ -42,12 +42,173 @@ TELEGRAM_TOKEN=
 
 - `/pagomovil_gilza` - Check Gilza's PagoMóvil transactions
 
+### Telegram cURL Examples
+
+Here are some `curl` examples to simulate Telegram messages to your webhook endpoint. Replace `http://localhost:8000` with your actual server address (e.g., your ngrok URL).
+
+#### `/gasto` (Record an expense)
+
+This is a two-step command.
+
+1.  **Initiate the command:**
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": 12345, "type": "private" },
+            "text": "/gasto"
+        }
+    }
+    ```
+
+2.  **Provide expense details:**
+    The bot will ask `💰 ¿Cuánto gastaste y en qué?`. You reply with the details.
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "from": { "id": 98765 },
+            "chat": { "id": 12345, "type": "private" },
+            "text": "100 for lunch"
+        }
+    }
+    ```
+
+#### `/report` (Generate a report)
+
+This is a two-step command.
+
+1.  **Initiate the command:**
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": 12345, "type": "private" },
+            "text": "/report"
+        }
+    }
+    ```
+
+2.  **Select a period:**
+    The bot will show a list of periods. You reply with a number from 0 to 6.
+    ```sh
+    # Example: Selecting "Mes actual" (Current Month)
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": 12345, "type": "private" },
+            "text": "3"
+        }
+    }
+    ```
+
+#### `/consulta_codigo` (Look up product)
+
+This is a two-step command.
+
+1.  **Initiate the command (private chat):**
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": 12345, "type": "private" },
+            "text": "/consulta_codigo"
+        }
+    }
+    ```
+
+2.  **Provide the product code:**
+    The bot will ask for the code. You reply with it.
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": 12345, "type": "private" },
+            "text": "ABC123"
+        }
+    }
+    ```
+
+#### `/consulta_codigo` (in a Group Chat)
+
+In group chats, you should specify the bot's name.
+
+1.  **Initiate the command:**
+    ```sh
+    # Note the @botname and the negative chat id for groups
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": -12345, "type": "group" },
+            "text": "/consulta_codigo@septimodiaboutique_bot"
+        }
+    }
+    ```
+
+2.  **Provide the product code:**
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": -12345, "type": "group" },
+            "text": "XYZ789"
+        }
+    }
+    ```
+
+#### `/pagomovil` (Check transactions)
+
+This is a single-step command.
+
+-   **Check Wuilliam's account:**
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": 12345, "type": "private" },
+            "text": "/pagomovil_wuilliam"
+        }
+    }
+    ```
+
+-   **Check Gilza's account:**
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "chat": { "id": 12345, "type": "private" },
+            "text": "/pagomovil_gilza"
+        }
+    }
+    ```
+
 ## Set My Commands
 
 ```sh
 curl --location 'https://api.telegram.org/bot<TOKEN>/setMyCommands' \
 --header 'Content-Type: application/json' \
---data '{
+--data 
+{
     "commands": [
         {
             "command": "pagomovil_wuilliam_bot",
@@ -65,5 +226,5 @@ curl --location 'https://api.telegram.org/bot<TOKEN>/setMyCommands' \
     "scope": {
         "type": "all_group_chats"
     }
-}'
+}
 ```

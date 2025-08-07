@@ -1,7 +1,3 @@
-networks:
-  7db-family:
-    external: true
-
 services:
   webhook:
     build: .
@@ -15,5 +11,11 @@ services:
       - .env
     environment:
       - PAGOMOVIL_API_URL=http://pagomovil:5000
+      - INVENTORY_API_URL=http://inventariodb-api:5001
     networks:
       - 7db-family
+
+networks:
+  7db-family:
+    external: true
+    name: 7db-family

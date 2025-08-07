@@ -208,6 +208,67 @@ async function callPagoMovilAPI(account, group = false, debug = false) {
   }
 }
 
+async function callProductLookupAPI(code) {
+  const { INVENTORY_API_URL } = process.env;
+  if (!INVENTORY_API_URL) {
+    const errorMessage = "INVENTORY_API_URL environment variable is not set.";
+    console.error(errorMessage);
+    return { success: false, message: "Inventory API URL not configured." };
+  }
+
+  const requestBody = {
+    code: code,
+  };
+  console.log('Calling Product Lookup API with body:', JSON.stringify(requestBody, null, 2));
+
+  try {
+    const response = await axios.post(`${INVENTORY_API_URL}/consulta_producto`, requestBody, { timeout: 120000 }); // 2 minute timeout
+    console.log('Product Lookup API response:', response.data);
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error("Error calling Product Lookup API:", error.response ? error.response.data : error.message);
+    if (error.code === 'ECONNABORTED') {
+        return { success: false, message: "Request timed out" };
+    }
+    if (error.response) {
+        const errorMessage = error.response.data.error || "Unknown error from API";
+        return { success: false, message: `Failed to lookup product: ${errorMessage}` };
+    }
+    return { success: false, message: `Failed to lookup product: ${error.message}` };
+  }
+}
+
+async function callSalesReportAPI(period) {
+  const { INVENTORY_API_URL } = process.env;
+  if (!INVENTORY_API_URL) {
+    const errorMessage = "INVENTORY_API_URL environment variable is not set.";
+    console.error(errorMessage);
+    return { success: false, message: "Inventory API URL not configured." };
+  }
+
+  const requestBody = {
+    period: period,
+    ai: true
+  };
+  console.log('Calling Sales Report API with body:', JSON.stringify(requestBody, null, 2));
+
+  try {
+    const response = await axios.post(`${INVENTORY_API_URL}/reporte_ventas`, requestBody, { timeout: 300000 }); // 5 minute timeout for AI
+    console.log('Sales Report API response:', response.data);
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error("Error calling Sales Report API:", error.response ? error.response.data : error.message);
+    if (error.code === 'ECONNABORTED') {
+        return { success: false, message: "Request timed out" };
+    }
+    if (error.response) {
+        const errorMessage = error.response.data.error || "Unknown error from API";
+        return { success: false, message: `Failed to generate report: ${errorMessage}` };
+    }
+    return { success: false, message: `Failed to generate report: ${error.message}` };
+  }
+}
+
 async function generateRequest(body) {
   try {
     const response = await axios.post(GENERATOR_URL + '/generate',
@@ -352,21 +413,21 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
 }
 
 async function sendTelegramMessage(chatId, message, token = TELEGRAM_TOKEN) {
-  return Promise.resolve()
-  // const escapedOutput = escapeMarkdownV2(message);
-  // return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-  //   chat_id: chatId,
-  //   text: escapedOutput,
-  //   parse_mode: 'MarkdownV2'
-  // })
-  //   .then(() => {
-  //     console.log(`Mensaje "${message}" enviado con éxito`);
-  //     return { success: true };
-  //   })
-  //   .catch(error => {
-  //     console.error(`Error al enviar mensaje "${message}":`, error);
-  //     return { success: false, error };
-  //   });
+  // return Promise.resolve()
+  const escapedOutput = escapeMarkdownV2(message);
+  return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+    chat_id: chatId,
+    text: escapedOutput,
+    parse_mode: 'MarkdownV2'
+  })
+    .then(() => {
+      console.log(`Mensaje "${message}" enviado con éxito`);
+      return { success: true };
+    })
+    .catch(error => {
+      console.error(`Error al enviar mensaje "${message}":`, error);
+      return { success: false, error };
+    });
 }
 
 // Function to send product details with image
@@ -444,7 +505,7 @@ async function processCommandQueue() {
     return;
   }
 
-  const { chatId, appPath, args, originalMessageText, jobType, botToken } = job;
+  const { chatId, originalMessageText, jobType, botToken } = job;
   const token = botToken || TELEGRAM_TOKEN; // Use provided token or default
 
   console.log(`Processing job for chatId ${chatId}: ${originalMessageText} (type: ${jobType || 'gasto'})`);
@@ -488,20 +549,31 @@ async function processCommandQueue() {
 
     if (jobType === 'report') {
       // Handle report generation job
-      const result = await runCommandAsync(appPath, args);
-      console.log(`Report job for ${originalMessageText} completed. stdout:`, result.stdout);
-      await sendTelegramMessage(chatId, `📊 Reporte generado:\n\n${result.stdout}`, token);
+      const { period } = job;
+      const result = await callSalesReportAPI(period);
+
+      if (result.success) {
+        console.log(`Report job for ${originalMessageText} completed. data:`, result.data);
+        const reportText = (typeof result.data === 'string') ? result.data : (result.data.message || JSON.stringify(result.data, null, 2));
+        await sendTelegramMessage(chatId, `📊 Reporte generado:\n\n${reportText}`, token);
+      } else {
+        await sendTelegramMessage(chatId, `❌ Error al generar el reporte: ${result.message}`, token);
+      }
     }
 
     if (jobType === 'product_lookup') {
       // Handle product lookup job
       console.log('Processing product lookup...');
-      const result = await runCommandAsync(appPath, args);
-      console.log(`Product lookup job for ${originalMessageText} completed. stdout:`, result.stdout);
+      const { code, isGroupChat } = job;
+      const result = await callProductLookupAPI(code);
 
-      // Use specialized function to send product details with image
-      await sendProductDetails(chatId, result.stdout, token, job.isGroupChat);
-      console.log(`Product lookup completed successfully for ${originalMessageText}`);
+      if (result.success) {
+        console.log(`Product lookup job for ${originalMessageText} completed. data:`, result.data);
+        await sendProductDetails(chatId, JSON.stringify(result.data), token, isGroupChat);
+        console.log(`Product lookup completed successfully for ${originalMessageText}`);
+      } else {
+        await sendTelegramMessage(chatId, `❌ Error al consultar el producto: ${result.message}`, token);
+      }
     }
   } catch (errorOutcome) {
     console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
@@ -514,28 +586,6 @@ async function processCommandQueue() {
         await sendTelegramMessage(chatId, `⚠️ Error (stderr) al registrar "${originalMessageText}": ${errorOutcome.stderr}`, token);
       } else {
         await sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`, token);
-      }
-    }
-
-    if (jobType === 'report') {
-      // Handle report errors
-      if (errorOutcome.error && errorOutcome.error.message) {
-        await sendTelegramMessage(chatId, `❌ Error al generar el reporte: ${errorOutcome.error.message}`, token);
-      } else if (errorOutcome.stderr) {
-        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al generar el reporte: ${errorOutcome.stderr}`, token);
-      } else {
-        await sendTelegramMessage(chatId, `❌ Error desconocido al generar el reporte`, token);
-      }
-    }
-
-    if (jobType === 'product_lookup') {
-      // Handle product lookup errors
-      if (errorOutcome.error && errorOutcome.error.message) {
-        await sendTelegramMessage(chatId, `❌ Error al consultar el producto: ${errorOutcome.error.message}`, token);
-      } else if (errorOutcome.stderr) {
-        await sendTelegramMessage(chatId, `⚠️ Error (stderr) al consultar el producto: ${errorOutcome.stderr}`, token);
-      } else {
-        await sendTelegramMessage(chatId, `❌ Error desconocido al consultar el producto`, token);
       }
     }
   } finally {
@@ -694,15 +744,11 @@ app.post("/telegram", async (req, res) => {
     if (validOptions.includes(userCommand.trim())) {
       // Feedback to user
       await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑", storedBotToken);
-      delete chatStates[chatId];
+      
       // Enqueue a report generation job
-      const appPath = '/home/wuilliam/.nvm/versions/node/v20.16.0/bin/node'; // Or from config
-      const scriptPath = '/home/wuilliam/proyectos/7db-inventariodb/analize_short.js'; // Or from config
-      const args = [scriptPath, '--period', `${userCommand.trim()}`, '--ai', 'true'];
       const job = {
         chatId: chatId,
-        appPath: appPath,
-        args: args,
+        period: userCommand.trim(),
         originalMessageText: `/report ${userCommand.trim()}`,
         jobType: 'report',
         botToken: storedBotToken
@@ -725,22 +771,18 @@ app.post("/telegram", async (req, res) => {
     if (userCommand.trim()) {
       // Feedback to user
       await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
-      delete chatStates[chatId];
+      
       // Enqueue a product lookup job
-      const appPath = '/home/wuilliam/.nvm/versions/node/v20.16.0/bin/node'; // Or from config
-      const scriptPath = '/home/wuilliam/proyectos/7db-inventariodb/product_lookup.js'; // Or from config
-      const args = [scriptPath, '--code', `${userCommand.trim()}`];
       const job = {
         chatId: chatId,
-        appPath: appPath,
-        args: args,
+        code: userCommand.trim(),
         originalMessageText: userCommand.trim(),
         jobType: 'product_lookup',
-        onStdout: parseProductLookup,
         botToken: storedBotToken,
         isGroupChat: isGroupChat
       };
       commandQueue.push(job);
+      delete chatStates[chatId];
       // Feedback to user is already sent above
       processCommandQueue();
     } else {
