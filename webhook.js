@@ -145,6 +145,37 @@ const sendFBMessage = async (to, text) => {
   }
 };
 
+async function callSpendingAPI(spending, sheetId = null) {
+  const { PAGOMOVIL_API_URL } = process.env;
+  if (!PAGOMOVIL_API_URL) {
+    const errorMessage = "PAGOMOVIL_API_URL environment variable is not set.";
+    console.error(errorMessage);
+    return { success: false, message: "Spending API URL not configured." };
+  }
+
+  const requestBody = {
+    spending: spending,
+    sheet_id: sheetId,
+  };
+  console.log('Calling Spending API with body:', JSON.stringify(requestBody, null, 2));
+
+  try {
+    const response = await axios.post(`${PAGOMOVIL_API_URL}/spending`, requestBody, { timeout: 120000 }); // 2 minute timeout
+    console.log('Spending API response:', response.data);
+    return { success: true, message: response.data.message };
+  } catch (error) {
+    console.error("Error calling Spending API:", error.response ? error.response.data : error.message);
+    if (error.code === 'ECONNABORTED') {
+        return { success: false, message: "Request timed out" };
+    }
+    if (error.response) {
+        const errorMessage = error.response.data.error || "Unknown error from API";
+        return { success: false, message: `Failed to record spending: ${errorMessage}` };
+    }
+    return { success: false, message: `Failed to record spending: ${error.message}` };
+  }
+}
+
 async function callPagoMovilAPI(account, group = false, debug = false) {
   const { PAGOMOVIL_API_URL } = process.env;
   if (!PAGOMOVIL_API_URL) {
@@ -444,10 +475,15 @@ async function processCommandQueue() {
     }
 
     if (jobType === 'gasto') {
-      // Default to gasto processing
-      const result = await runCommandAsync(appPath, args);
-      console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
-      await sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`, token);
+      const { spending, sheetId } = job;
+      const result = await callSpendingAPI(spending, sheetId);
+
+      if (result.success) {
+        console.log(`Job for ${originalMessageText} completed. message:`, result.message);
+        await sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`, token);
+      } else {
+        await sendTelegramMessage(chatId, `❌ Error registrando gasto: ${result.message}`, token);
+      }
     }
 
     if (jobType === 'report') {
@@ -512,6 +548,7 @@ async function processCommandQueue() {
 
 // Enhanced chat state structure to store bot information
 const chatStates = {};
+
 
 app.post("/telegram", async (req, res) => {
   console.log("CHAT full request", req.body);
@@ -717,23 +754,13 @@ app.post("/telegram", async (req, res) => {
   if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_AMOUNT") {
     // Get the stored bot token for this conversation
     const storedBotToken = chatStates[chatId].botToken || botToken;
-    // New logic:
-    const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
-    const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_zsoft.py'; // Or from config
-    // Note: In runCommandAsync, the scriptPath was the first element of the args array.
-    // The new processCommandQueue job structure has `args` which is directly passed to runCommandAsync.
-    // So, scriptPath should be the first element in this args array.
-
-    // Append source:1 and the phone number to the user command
+    
     const phone = req.body.message.from ? req.body.message.from.phone_number || req.body.message.from.id || "unknown" : "unknown";
     const modifiedCommand = `${userCommand} source:${phone}`;
 
-    const args = [scriptPath, '--mode=stdin', `--spending=${modifiedCommand}`, '--sheets'];
-
     const job = {
       chatId: chatId,
-      appPath: appPath,
-      args: args,
+      spending: modifiedCommand,
       originalMessageText: userCommand, // Store the original message for notifications
       jobType: 'gasto',
       botToken: storedBotToken
