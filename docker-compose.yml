@@ -1,7 +1,7 @@
 services:
-  webhook:
+  webhook-telegram:
     build: .
-    container_name: webhook
+    container_name: webhook-telegram
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -10,7 +10,7 @@ services:
     env_file:
       - .env
     environment:
-      - PAGOMOVIL_API_URL=http://pagomovil:5000
+      - PAGOMOVIL_API_URL=http://pagomovil-api:5000
       - INVENTORY_API_URL=http://inventariodb-api:5001
     networks:
       - 7db-family
