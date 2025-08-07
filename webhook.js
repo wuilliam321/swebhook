@@ -311,7 +311,7 @@ function runCommand(_, appPath, args) {
 // Escape special characters for MarkdownV2
 function escapeMarkdownV2(text) {
   return text
-    .replace(/[_*[\`>#+\-=\|(~.{}\!]/g, ch => '\\' + ch);
+    .replace(/[_*[\]()~`>#+\-=|{}.!]/g, ch => '\\' + ch);
 }
 
 // Parse product lookup JSON output and return formatted message and image URL
