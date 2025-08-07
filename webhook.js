@@ -1,9 +1,42 @@
 const express = require("express");
 const axios = require('axios').default;
 const { exec } = require('child_process');
+const fs = require('fs');
+const util = require('util');
+
+// --- Start of logging setup ---
+const logFile = fs.createWriteStream(__dirname + '/webhook.log', { flags: 'a' });
+
+const originalConsole = {
+  log: console.log,
+  error: console.error,
+  warn: console.warn,
+};
+
+const logToFile = (level, ...args) => {
+  const formattedMessage = util.format(...args);
+  logFile.write(`${new Date().toISOString()} [${level.toUpperCase()}] ${formattedMessage}\n`);
+};
+
+console.log = (...args) => {
+  logToFile('log', ...args);
+  originalConsole.log.apply(console, args);
+};
+
+console.error = (...args) => {
+  logToFile('error', ...args);
+  originalConsole.error.apply(console, args);
+};
+
+console.warn = (...args) => {
+  logToFile('warn', ...args);
+  originalConsole.warn.apply(console, args);
+};
+// --- End of logging setup ---
 
 const app = express();
 app.use(express.json());
+
 
 const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, PHONE_ID, PORT, GENERATOR_URL, TELEGRAM_TOKEN } = process.env;
 
@@ -112,6 +145,38 @@ const sendFBMessage = async (to, text) => {
   }
 };
 
+async function callPagoMovilAPI(account, group = false, debug = false) {
+  const { PAGOMOVIL_API_URL } = process.env;
+  if (!PAGOMOVIL_API_URL) {
+    const errorMessage = "PAGOMOVIL_API_URL environment variable is not set.";
+    console.error(errorMessage);
+    return { success: false, message: "PagoMóvil API URL not configured." };
+  }
+
+  const requestBody = {
+    account,
+    group,
+    debug
+  };
+  console.log('Calling PagoMóvil API with body:', JSON.stringify(requestBody, null, 2));
+
+  try {
+    const response = await axios.post(`${PAGOMOVIL_API_URL}/pagomovil`, requestBody, { timeout: 120000 }); // 2 minute timeout
+    console.log('PagoMóvil API response:', response.data);
+    return { success: true, message: response.data.message };
+  } catch (error) {
+    console.error("Error calling PagoMóvil API:", error.response ? error.response.data : error.message);
+    if (error.code === 'ECONNABORTED') {
+        return { success: false, message: "Request timed out" };
+    }
+    if (error.response) {
+        const errorMessage = error.response.data.error || "Unknown error from API";
+        return { success: false, message: `Failed to extract transactions: ${errorMessage}` };
+    }
+    return { success: false, message: `Failed to extract transactions: ${error.message}` };
+  }
+}
+
 async function generateRequest(body) {
   try {
     const response = await axios.post(GENERATOR_URL + '/generate',
@@ -154,7 +219,7 @@ function runCommand(_, appPath, args) {
 // Escape special characters for MarkdownV2
 function escapeMarkdownV2(text) {
   return text
-    .replace(/[_*[\]()~`>#+\-=|{}.!]/g, ch => '\\' + ch);
+    .replace(/[_*[\`>#+\-=\|(~.{}\!]/g, ch => '\\' + ch);
 }
 
 // Parse product lookup JSON output and return formatted message and image URL
@@ -256,20 +321,21 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
 }
 
 async function sendTelegramMessage(chatId, message, token = TELEGRAM_TOKEN) {
-  const escapedOutput = escapeMarkdownV2(message);
-  return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-    chat_id: chatId,
-    text: escapedOutput,
-    parse_mode: 'MarkdownV2'
-  })
-    .then(() => {
-      console.log(`Mensaje "${message}" enviado con éxito`);
-      return { success: true };
-    })
-    .catch(error => {
-      console.error(`Error al enviar mensaje "${message}":`, error);
-      return { success: false, error };
-    });
+  return Promise.resolve()
+  // const escapedOutput = escapeMarkdownV2(message);
+  // return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+  //   chat_id: chatId,
+  //   text: escapedOutput,
+  //   parse_mode: 'MarkdownV2'
+  // })
+  //   .then(() => {
+  //     console.log(`Mensaje "${message}" enviado con éxito`);
+  //     return { success: true };
+  //   })
+  //   .catch(error => {
+  //     console.error(`Error al enviar mensaje "${message}":`, error);
+  //     return { success: false, error };
+  //   });
 }
 
 // Function to send product details with image
@@ -310,6 +376,7 @@ async function runCommandAsync(appPath, args) {
     // depending on the shell and potential argument content.
     const escapedArgs = args.map(arg => `'${arg.replace(/'/g, "'\\''")}'`).join(' ');
     const cmd = `${appPath} ${escapedArgs || "''"}`; // Ensure at least empty quotes if no args
+    console.log('Executing command:', cmd);
 
     exec(cmd, (error, stdout, stderr) => {
       if (error) {
@@ -350,27 +417,30 @@ async function processCommandQueue() {
   const token = botToken || TELEGRAM_TOKEN; // Use provided token or default
 
   console.log(`Processing job for chatId ${chatId}: ${originalMessageText} (type: ${jobType || 'gasto'})`);
+  console.log('Job details:', JSON.stringify(job, null, 2));
 
   try {
     if (jobType === 'pagomovil') {
-      console.log('Processing pagomovil search...');
-      // Default to pagomovil processing
-      const result = await runCommandAsync(appPath, args);
-      console.log(`Job for ${originalMessageText} completed. stdout:`, result.stdout);
-      
-      // Process output to remove Saldo lines if in group chat
-      let output = result.stdout;
-      if (job.isGroupChat) {
-        // Filter out Saldo lines from the output
-        output = output.split('\n')
-          .filter(line => !line.includes('💳 Saldo:'))
-          .filter(line => !line.includes('Monto: -')) // Ignore negatives
-          .join('\n');
-      }
-      
-      await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${output}`, token);
+      console.log('Processing pagomovil search via API...');
+      const { account, isGroupChat } = job;
+      const result = await callPagoMovilAPI(account, isGroupChat);
 
-      console.log(`Pagomovil search completed successfully for ${originalMessageText}`);
+      if (result.success) {
+        console.log(`Job for ${originalMessageText} completed. message:`, result.message);
+        let output = result.message;
+        
+        if (job.isGroupChat) {
+            output = output.split('\n')
+              .filter(line => !line.trim().startsWith('Saldo:'))
+              .join('\n');
+        }
+
+        await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${output}`, token);
+        console.log(`Pagomovil search completed successfully for ${originalMessageText}`);
+      } else {
+        // Error is already logged inside callPagoMovilAPI
+        await sendTelegramMessage(chatId, `❌ Error buscando pagomovil: ${result.message}`, token);
+      }
     }
 
     if (jobType === 'gasto') {
@@ -399,10 +469,6 @@ async function processCommandQueue() {
     }
   } catch (errorOutcome) {
     console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
-
-    if (jobType === 'pagomovil') {
-      await sendTelegramMessage(chatId, `❌ Error inesperado buscando pagomovil: ${errorOutcome.message || 'Error desconocido'}`, token);
-    }
 
     if (jobType === 'gasto') {
       // Handle gasto errors as before
@@ -521,54 +587,27 @@ app.post("/telegram", async (req, res) => {
     return;
   }
 
-  // --- /pagomovil_wuilliam command ---
-  if (userCommand === "/pagomovil_wuilliam") {
-    const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
-    const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_pagomovil.py'; // Or from config
-    const args = [scriptPath, '--account=wuilliam', '--group=' + (isGroupChat ? 'true' : 'false')];
-    const job = {
-      chatId: chatId,
-      appPath: appPath,
-      args: args,
-      originalMessageText: userCommandRaw,
-      jobType: 'pagomovil',
-      botToken: botToken,
-      isGroupChat: isGroupChat
-    };
-    commandQueue.push(job);
+  // --- /pagomovil command ---
+  if (userCommand.startsWith("/pagomovil_")) {
+    const account = userCommand.substring("/pagomovil_".length);
+    if (['wuilliam', 'gilza'].includes(account)) {
+      const job = {
+        chatId: chatId,
+        account: account,
+        originalMessageText: userCommandRaw,
+        jobType: 'pagomovil',
+        botToken: botToken,
+        isGroupChat: isGroupChat
+      };
+      commandQueue.push(job);
 
-    delete chatStates[chatId]; // Delete state *after* queuing the job.
+      delete chatStates[chatId]; // Delete state *after* queuing the job. 
 
-    await sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Wuilliam en BBVA Provincial. Te avisaré cuando esté listo. 🔍", botToken);
+      const capitalizedAccount = account.charAt(0).toUpperCase() + account.slice(1);
+      await sendTelegramMessage(chatId, `⏳ Consultando transacciones de PagoMóvil ${capitalizedAccount} en BBVA Provincial. Te avisaré cuando esté listo. 🔍`, botToken);
 
-    processCommandQueue(); // Kick off processing if not already running
-
-    res.status(200).send('OK');
-    return;
-  }
-
-  // --- /pagomovil_gilza command ---
-  if (userCommand === "/pagomovil_gilza") {
-    const appPath = '/home/wuilliam/proyectos/ai-financial/.venv/bin/python'; // Or from config
-    const scriptPath = '/home/wuilliam/proyectos/ai-financial/test_pagomovil.py'; // Or from config
-    const args = [scriptPath, '--account=gilza'];
-    const job = {
-      chatId: chatId,
-      appPath: appPath,
-      args: args,
-      originalMessageText: userCommandRaw,
-      jobType: 'pagomovil',
-      botToken: botToken,
-      isGroupChat: isGroupChat
-    };
-    commandQueue.push(job);
-
-    delete chatStates[chatId]; // Delete state *after* queuing the job.
-
-    await sendTelegramMessage(chatId, "⏳ Consultando transacciones de PagoMóvil Gilza en BBVA Provincial. Te avisaré cuando esté listo. 🔍", botToken);
-
-    processCommandQueue(); // Kick off processing if not already running
-
+      processCommandQueue(); // Kick off processing if not already running
+    }
     res.status(200).send('OK');
     return;
   }
@@ -701,7 +740,7 @@ app.post("/telegram", async (req, res) => {
     };
     commandQueue.push(job);
 
-    delete chatStates[chatId]; // Delete state *after* queuing the job.
+    delete chatStates[chatId]; // Delete state *after* queuing the job. 
 
     await sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`, storedBotToken);
 

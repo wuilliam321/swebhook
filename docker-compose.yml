@@ -1,0 +1,19 @@
+networks:
+  7db-family:
+    external: true
+
+services:
+  webhook:
+    build: .
+    container_name: webhook
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      - PAGOMOVIL_API_URL=http://pagomovil:5000
+    networks:
+      - 7db-family
