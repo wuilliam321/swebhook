@@ -76,19 +76,19 @@ function extractBotName(command) {
 // Extract base command from /command@botname or /command_bot format
 function extractBaseCommand(command) {
   if (!command) return command;
-  
+
   // Check for @botname format
   const atIndex = command.indexOf('@');
   if (atIndex !== -1) {
     command = command.substring(0, atIndex);
   }
-  
+
   // Check for _bot suffix
   const botSuffix = "_bot";
   if (command.endsWith(botSuffix)) {
     return command.substring(0, command.length - botSuffix.length);
   }
-  
+
   return command;
 }
 
@@ -105,6 +105,14 @@ function isValidBotName(botName) {
 
 const commandQueue = [];
 let isProcessingCommand = false;
+
+// Add pagomovil-specific tracking
+let isProcessingPagoMovil = false;
+
+// Check if there's already a pagomovil job in queue
+function hasPendingPagoMovilJob() {
+  return commandQueue.some(job => job.jobType === 'pagomovil');
+}
 
 const sendFBMessage = async (to, text) => {
   const req = {
@@ -166,11 +174,11 @@ async function callSpendingAPI(spending, sheetId = null) {
   } catch (error) {
     console.error("Error calling Spending API:", error.response ? error.response.data : error.message);
     if (error.code === 'ECONNABORTED') {
-        return { success: false, message: "Request timed out" };
+      return { success: false, message: "Request timed out" };
     }
     if (error.response) {
-        const errorMessage = error.response.data.error || "Unknown error from API";
-        return { success: false, message: `Failed to record spending: ${errorMessage}` };
+      const errorMessage = error.response.data.error || "Unknown error from API";
+      return { success: false, message: `Failed to record spending: ${errorMessage}` };
     }
     return { success: false, message: `Failed to record spending: ${error.message}` };
   }
@@ -198,11 +206,11 @@ async function callPagoMovilAPI(account, group = false, debug = false) {
   } catch (error) {
     console.error("Error calling PagoMóvil API:", error.response ? error.response.data : error.message);
     if (error.code === 'ECONNABORTED') {
-        return { success: false, message: "Request timed out" };
+      return { success: false, message: "Request timed out" };
     }
     if (error.response) {
-        const errorMessage = error.response.data.error || "Unknown error from API";
-        return { success: false, message: `Failed to extract transactions: ${errorMessage}` };
+      const errorMessage = error.response.data.error || "Unknown error from API";
+      return { success: false, message: `Failed to extract transactions: ${errorMessage}` };
     }
     return { success: false, message: `Failed to extract transactions: ${error.message}` };
   }
@@ -228,11 +236,11 @@ async function callProductLookupAPI(code) {
   } catch (error) {
     console.error("Error calling Product Lookup API:", error.response ? error.response.data : error.message);
     if (error.code === 'ECONNABORTED') {
-        return { success: false, message: "Request timed out" };
+      return { success: false, message: "Request timed out" };
     }
     if (error.response) {
-        const errorMessage = error.response.data.error || "Unknown error from API";
-        return { success: false, message: `Failed to lookup product: ${errorMessage}` };
+      const errorMessage = error.response.data.error || "Unknown error from API";
+      return { success: false, message: `Failed to lookup product: ${errorMessage}` };
     }
     return { success: false, message: `Failed to lookup product: ${error.message}` };
   }
@@ -259,11 +267,11 @@ async function callSalesReportAPI(period) {
   } catch (error) {
     console.error("Error calling Sales Report API:", error.response ? error.response.data : error.message);
     if (error.code === 'ECONNABORTED') {
-        return { success: false, message: "Request timed out" };
+      return { success: false, message: "Request timed out" };
     }
     if (error.response) {
-        const errorMessage = error.response.data.error || "Unknown error from API";
-        return { success: false, message: `Failed to generate report: ${errorMessage}` };
+      const errorMessage = error.response.data.error || "Unknown error from API";
+      return { success: false, message: `Failed to generate report: ${errorMessage}` };
     }
     return { success: false, message: `Failed to generate report: ${error.message}` };
   }
@@ -337,15 +345,15 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
       `🏪 Tienda: ${productData.Tienda}`,
       ``
     ];
-    
+
     // Only show purchase price in private chats
     if (!isGroupChat) {
       formattedMessage.push(`💰 Precio de Compra: $${productData["Precio de Compra"]}`);
     }
-    
+
     formattedMessage.push(`💵 Precio de Venta: $${productData.Monto}`);
     formattedMessage.push(`${productData.Operacion === 'APARTADO' ? '🔒' : productData.Operacion === 'VENDIDO' ? '❌' : productData.Operacion === 'DISPONIBLE' ? '✅' : '🔄'} Estado: ${productData.Operacion}`);
-    
+
 
     // Add other products in the same group if any
     if (groupProducts.length > 0) {
@@ -359,7 +367,7 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
         'VENDIDO': [],
         'other': []
       };
-      
+
       // Sort products into groups by status
       groupProducts.forEach(product => {
         if (productsByStatus[product.Operacion]) {
@@ -368,7 +376,7 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
           productsByStatus.other.push(product);
         }
       });
-      
+
       // Display products grouped by status, one per line
       if (productsByStatus.DISPONIBLE.length > 0) {
         formattedMessage.push(`✅ Disponibles:`);
@@ -376,21 +384,21 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
           formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
         });
       }
-      
+
       if (productsByStatus.APARTADO.length > 0) {
         formattedMessage.push(`🔒 Apartados:`);
         productsByStatus.APARTADO.forEach(product => {
           formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
         });
       }
-      
+
       if (productsByStatus.VENDIDO.length > 0) {
         formattedMessage.push(`❌ Vendidos:`);
         productsByStatus.VENDIDO.forEach(product => {
           formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
         });
       }
-      
+
       if (productsByStatus.other.length > 0) {
         formattedMessage.push(`🔄 Otros:`);
         productsByStatus.other.forEach(product => {
@@ -513,6 +521,9 @@ async function processCommandQueue() {
 
   try {
     if (jobType === 'pagomovil') {
+      // Set the pagomovil processing flag
+      isProcessingPagoMovil = true;
+
       console.log('Processing pagomovil search via API...');
       const { account, isGroupChat } = job;
       const result = await callPagoMovilAPI(account, isGroupChat);
@@ -520,11 +531,11 @@ async function processCommandQueue() {
       if (result.success) {
         console.log(`Job for ${originalMessageText} completed. message:`, result.message);
         let output = result.message;
-        
+
         if (job.isGroupChat) {
-            output = output.split('\n')
-              .filter(line => !line.trim().startsWith('Saldo:'))
-              .join('\n');
+          output = output.split('\n')
+            .filter(line => !line.trim().startsWith('Saldo:'))
+            .join('\n');
         }
 
         await sendTelegramMessage(chatId, `💳 *Transacciones PagoMóvil - BBVA Provincial*\n\n${output}`, token);
@@ -533,6 +544,9 @@ async function processCommandQueue() {
         // Error is already logged inside callPagoMovilAPI
         await sendTelegramMessage(chatId, `❌ Error buscando pagomovil: ${result.message}`, token);
       }
+
+      // Clear the pagomovil processing flag
+      isProcessingPagoMovil = false;
     }
 
     if (jobType === 'gasto') {
@@ -578,6 +592,11 @@ async function processCommandQueue() {
   } catch (errorOutcome) {
     console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
 
+    // Make sure to clear the pagomovil flag on error too
+    if (jobType === 'pagomovil') {
+      isProcessingPagoMovil = false;
+    }
+
     if (jobType === 'gasto') {
       // Handle gasto errors as before
       if (errorOutcome.error && errorOutcome.error.message) {
@@ -602,7 +621,7 @@ const chatStates = {};
 
 app.post("/telegram", async (req, res) => {
   console.log("CHAT full request", req.body);
-  
+
   // Handle different types of Telegram updates
   // my_chat_member updates occur when bot is added/removed from groups
   if (req.body.my_chat_member) {
@@ -610,7 +629,7 @@ app.post("/telegram", async (req, res) => {
     res.status(200).send('OK'); // Acknowledge receipt
     return;
   }
-  
+
   // Handle other update types like callback_query, edited_message, etc.
   if (!req.body.message) {
     console.log("Received non-message update", Object.keys(req.body));
@@ -618,43 +637,43 @@ app.post("/telegram", async (req, res) => {
     return;
   }
   const chatId = req.body.message.chat.id;
-  
+
   // Determine if this is a group chat
-  const isGroupChat = req.body.message.chat.type === 'group' 
+  const isGroupChat = req.body.message.chat.type === 'group'
     || req.body.message.chat.type === 'supergroup';
-    
+
   // Handle non-text messages (new chat members, photos, etc.)
   if (!req.body.message.text) {
-    console.log("Received non-text message", 
-      req.body.message.new_chat_member ? "new_chat_member" : 
-      req.body.message.new_chat_members ? "new_chat_members" : 
-      "unknown message type", 
+    console.log("Received non-text message",
+      req.body.message.new_chat_member ? "new_chat_member" :
+        req.body.message.new_chat_members ? "new_chat_members" :
+          "unknown message type",
       isGroupChat ? "(group chat)" : "(private chat)");
-    
+
     // We could add welcome messages or other handling here if needed
-    
+
     res.status(200).send('OK'); // Acknowledge receipt
     return;
   }
-  
+
   const userCommandRaw = req.body.message.text;
-  
+
   // Extract bot name and base command if present
   const botName = extractBotName(userCommandRaw);
   const userCommand = extractBaseCommand(userCommandRaw);
-  
+
   // Get token for this bot
   const botToken = botName ? getTokenForBot(botName) : TELEGRAM_TOKEN;
-  
+
   // Log details about the incoming command
   console.log(
-    "CHAT req:", 
-    userCommandRaw, 
+    "CHAT req:",
+    userCommandRaw,
     botName ? `(bot: ${botName})` : '',
     isGroupChat ? '(group chat)' : '(private chat)',
     isValidBotName(botName) ? '(valid bot)' : botName ? '(unknown bot)' : ''
   );
-  
+
   // Validate bot name in group chats - commands in group chats should include valid bot name
   if (isGroupChat && userCommandRaw.startsWith('/') && botName && !isValidBotName(botName)) {
     console.log(`Ignoring command with unknown bot name: ${botName}`);
@@ -678,6 +697,18 @@ app.post("/telegram", async (req, res) => {
   if (userCommand.startsWith("/pagomovil_")) {
     const account = userCommand.substring("/pagomovil_".length);
     if (['wuilliam', 'gilza'].includes(account)) {
+
+      // Check if there's already a pagomovil job processing or queued
+      if (isProcessingPagoMovil || hasPendingPagoMovilJob()) {
+        await sendTelegramMessage(
+          chatId,
+          `⏳ Ya hay una consulta de PagoMóvil en proceso. Por favor espera a que termine antes de solicitar otra.`,
+          botToken
+        );
+        res.status(200).send('OK');
+        return;
+      }
+
       const job = {
         chatId: chatId,
         account: account,
@@ -743,8 +774,8 @@ app.post("/telegram", async (req, res) => {
     const validOptions = ["0", "1", "2", "3", "4", "5", "6"];
     if (validOptions.includes(userCommand.trim())) {
       // Feedback to user
-      await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 📑", storedBotToken);
-      
+      await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 🔒", storedBotToken);
+
       // Enqueue a report generation job
       const job = {
         chatId: chatId,
@@ -771,7 +802,7 @@ app.post("/telegram", async (req, res) => {
     if (userCommand.trim()) {
       // Feedback to user
       await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
-      
+
       // Enqueue a product lookup job
       const job = {
         chatId: chatId,
@@ -796,7 +827,7 @@ app.post("/telegram", async (req, res) => {
   if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_AMOUNT") {
     // Get the stored bot token for this conversation
     const storedBotToken = chatStates[chatId].botToken || botToken;
-    
+
     const phone = req.body.message.from ? req.body.message.from.phone_number || req.body.message.from.id || "unknown" : "unknown";
     const modifiedCommand = `${userCommand} source:${phone}`;
 
