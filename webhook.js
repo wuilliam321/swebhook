@@ -4,6 +4,8 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const util = require('util');
 
+const { createOutfitConversationState, handleOutfitProgress, buildOutfitSummary, normalizeBase64Image, createTelegramPhotoPayload } = require('./outfit');
+
 // --- Start of logging setup ---
 const logFile = fs.createWriteStream(__dirname + '/webhook.log', { flags: 'a' });
 
@@ -277,6 +279,38 @@ async function callSalesReportAPI(period) {
   }
 }
 
+async function callOutfitGeneratorAPI(pieces) {
+  const { INVENTORY_API_URL } = process.env;
+  if (!INVENTORY_API_URL) {
+    const errorMessage = "INVENTORY_API_URL environment variable is not set.";
+    console.error(errorMessage);
+    return { success: false, message: "Inventory API URL not configured." };
+  }
+
+  const requestBody = {
+    pieces: pieces,
+  };
+  console.log('Calling Outfit Generator API with body:', JSON.stringify(requestBody, null, 2));
+
+  try {
+    const response = await axios.post(`${INVENTORY_API_URL}/outfit`, requestBody, { timeout: 300000 });
+    console.log('Outfit Generator API response:', response.data);
+    const data = response.data || {};
+    const image = data.image || null;
+    return { success: true, data, image };
+  } catch (error) {
+    console.error("Error calling Outfit Generator API:", error.response ? error.response.data : error.message);
+    if (error.code === 'ECONNABORTED') {
+      return { success: false, message: "Request timed out" };
+    }
+    if (error.response) {
+      const errorMessage = (error.response.data && (error.response.data.error || error.response.data.message)) || null;
+      return { success: false, message: `Failed to generate outfit: ${errorMessage || "Unknown error from API"}` };
+    }
+    return { success: false, message: `Failed to generate outfit: ${error.message}` };
+  }
+}
+
 async function generateRequest(body) {
   try {
     const response = await axios.post(GENERATOR_URL + '/generate',
@@ -292,6 +326,26 @@ async function generateRequest(body) {
     return response.data;
   } catch (error) {
     console.error('Error:', error);
+  }
+}
+
+async function sendOutfitPhoto(chatId, base64Image, caption, token = TELEGRAM_TOKEN) {
+  try {
+    if (!base64Image) {
+      throw new Error('Missing image payload for outfit photo');
+    }
+    const imageBuffer = Buffer.from(base64Image, 'base64');
+    const payload = createTelegramPhotoPayload(chatId, imageBuffer, caption);
+    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, payload.body, {
+      headers: payload.headers,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    });
+    console.log(`Outfit image sent to chat ${chatId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending outfit photo:', error.response ? error.response.data : error.message);
+    return { success: false, error };
   }
 }
 
@@ -575,6 +629,30 @@ async function processCommandQueue() {
       }
     }
 
+    if (jobType === 'outfit') {
+      console.log('Processing outfit generation job with pieces:', JSON.stringify(job.pieces || {}, null, 2));
+      const pieces = job.pieces || {};
+      const summary = job.summary || buildOutfitSummary(pieces);
+      const result = await callOutfitGeneratorAPI(pieces);
+
+      if (result.success) {
+        const normalizedImage = result.image ? normalizeBase64Image(result.image) : null;
+        const captionText = summary ? `✨ Atuendo listo\nPiezas: ${summary}` : '✨ Atuendo listo';
+
+        if (normalizedImage) {
+          const photoOutcome = await sendOutfitPhoto(chatId, normalizedImage, captionText, token);
+          if (!photoOutcome.success) {
+            await sendTelegramMessage(chatId, captionText, token);
+          }
+        } else {
+          await sendTelegramMessage(chatId, captionText, token);
+        }
+        console.log(`Outfit job for ${originalMessageText} completed.`);
+      } else {
+        await sendTelegramMessage(chatId, `❌ Error al generar el atuendo: ${result.message}`, token);
+      }
+    }
+
     if (jobType === 'product_lookup') {
       // Handle product lookup job
       console.log('Processing product lookup...');
@@ -765,6 +843,44 @@ app.post("/telegram", async (req, res) => {
     return;
   }
 
+
+  if (userCommand === "/outfit") {
+    const conversationState = createOutfitConversationState(botName, botToken);
+    chatStates[chatId] = conversationState;
+    await sendTelegramMessage(
+      chatId,
+      "🧵 Vamos a crear un atuendo. Ingresa el código de la prenda completa (fullBody) o escribe \"skip\" para combinar piezas separadas.",
+      botToken
+    );
+    res.status(200).send('OK');
+    return;
+  }
+
+  if (chatStates[chatId] && chatStates[chatId].state === "OUTFIT_COLLECTING") {
+    const storedBotToken = chatStates[chatId].botToken || botToken;
+    await handleOutfitProgress({
+      chatId,
+      text: req.body.message.text,
+      chatStatesRef: chatStates,
+      sendMessage: (message) => sendTelegramMessage(chatId, message, storedBotToken),
+      enqueueJob: async (jobPayload) => {
+        const payloadSummary = jobPayload.summary || buildOutfitSummary(jobPayload.pieces || {});
+        const job = {
+          chatId: chatId,
+          originalMessageText: '/outfit',
+          jobType: 'outfit',
+          botToken: storedBotToken,
+          pieces: jobPayload.pieces || {},
+          summary: payloadSummary,
+          useFullBody: jobPayload.useFullBody
+        };
+        commandQueue.push(job);
+        processCommandQueue();
+      }
+    });
+    res.status(200).send('OK');
+    return;
+  }
 
   // --- /report option selection ---
   if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_REPORT_OPTION") {

@@ -1,6 +1,14 @@
 const { exec } = require('child_process');
 const axios = require('axios');
 
+const {
+  createOutfitConversationState,
+  handleOutfitProgress,
+  buildOutfitSummary,
+  normalizeBase64Image,
+  createTelegramPhotoPayload
+} = require('./outfit');
+
 // Functions to test - Assuming they are exported from webhook.js
 // We need to simulate the module exports for testing if webhook.js doesn't explicitly export them.
 // For this example, let's assume webhook.js is modified to export these:
@@ -983,5 +991,158 @@ describe('runCommandAsync', () => {
     expect(exec).toHaveBeenCalledTimes(1);
     expect(exec).toHaveBeenCalledWith(`${appPath} ''`, expect.any(Function)); // or just appPath if that's the behavior
     expect(result).toEqual({ type: 'success', stdout: expectedStdout });
+  });
+});
+
+
+describe('/outfit conversational flow', () => {
+  const chatId = 'outfitChat';
+  let chatStates;
+  let sendMessageMock;
+  let queuedJobs;
+
+  beforeEach(() => {
+    chatStates = {};
+    queuedJobs = [];
+    sendMessageMock = jest.fn().mockResolvedValue({});
+  });
+
+  test('collects full body outfit without optional pieces', async () => {
+    chatStates[chatId] = createOutfitConversationState(null, 'token');
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'DRESS123',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    expect(chatStates[chatId].outfit.pieces.fullBody).toBe('DRESS123');
+    expect(chatStates[chatId].outfit.currentPiece).toBe('footwear');
+    expect(sendMessageMock).toHaveBeenCalledWith(expect.stringContaining('Prenda completa'));
+    expect(sendMessageMock).toHaveBeenCalledWith(expect.stringContaining('calzado'));
+
+    sendMessageMock.mockClear();
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'SHOE999',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    expect(chatStates[chatId].outfit.expectingOptionalConfirmation).toBe(true);
+    expect(sendMessageMock).toHaveBeenLastCalledWith(expect.stringContaining('opcionales'));
+
+    sendMessageMock.mockClear();
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'no',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    expect(queuedJobs).toHaveLength(1);
+    const payload = queuedJobs[0];
+    expect(payload.pieces).toEqual({ fullBody: 'DRESS123', footwear: 'SHOE999' });
+    expect(payload.summary).toContain('Prenda completa');
+    expect(chatStates[chatId]).toBeUndefined();
+    expect(sendMessageMock).toHaveBeenLastCalledWith(expect.stringContaining('Generando atuendo'));
+  });
+
+  test('collects separated pieces and optional outerwear', async () => {
+    chatStates[chatId] = createOutfitConversationState(null, 'token');
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'skip',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    expect(chatStates[chatId].outfit.useFullBody).toBe(false);
+    expect(chatStates[chatId].outfit.currentPiece).toBe('upperBody');
+
+    sendMessageMock.mockClear();
+
+    const requiredPieces = ['TOP001', 'BOTTOM002', 'SHOE003'];
+    for (const value of requiredPieces) {
+      await handleOutfitProgress({
+        chatId,
+        text: value,
+        chatStatesRef: chatStates,
+        sendMessage: sendMessageMock,
+        enqueueJob: async (payload) => { queuedJobs.push(payload); }
+      });
+    }
+
+    expect(chatStates[chatId].outfit.expectingOptionalConfirmation).toBe(true);
+
+    sendMessageMock.mockClear();
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'si',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    expect(chatStates[chatId].outfit.currentOptionalPiece).toBe('outerwear');
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'JACKET004',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'skip',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'skip',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    expect(queuedJobs).toHaveLength(1);
+    const payload = queuedJobs[0];
+    expect(payload.pieces).toEqual({
+      upperBody: 'TOP001',
+      lowerBody: 'BOTTOM002',
+      footwear: 'SHOE003',
+      outerwear: 'JACKET004'
+    });
+    expect(payload.useFullBody).toBe(false);
+    expect(payload.summary).toContain('Capa exterior');
+    expect(chatStates[chatId]).toBeUndefined();
+  });
+
+  test('normalizes base64 and creates telegram payload', () => {
+    const normalized = normalizeBase64Image('data:image/png;base64,abc123');
+    expect(normalized).toBe('abc123');
+
+    const buffer = Buffer.from('hello');
+    const payload = createTelegramPhotoPayload('123', buffer, 'caption');
+    expect(payload.headers['Content-Type']).toMatch(/multipart\/form-data; boundary=/);
+    const bodyString = payload.body.toString();
+    expect(bodyString).toContain('name="chat_id"');
+    expect(bodyString).toContain('123');
+    expect(bodyString).toContain('outfit.png');
+    expect(bodyString).toContain('caption');
   });
 });
