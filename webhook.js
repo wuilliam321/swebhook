@@ -279,7 +279,7 @@ async function callSalesReportAPI(period) {
   }
 }
 
-async function callOutfitGeneratorAPI(pieces) {
+async function callOutfitGeneratorAPI(pieces, userPreferences) {
   const { INVENTORY_API_URL } = process.env;
   if (!INVENTORY_API_URL) {
     const errorMessage = "INVENTORY_API_URL environment variable is not set.";
@@ -290,6 +290,9 @@ async function callOutfitGeneratorAPI(pieces) {
   const requestBody = {
     pieces: pieces,
   };
+  if (userPreferences && Object.keys(userPreferences).length > 0) {
+    requestBody.userPreferences = userPreferences;
+  }
   console.log('Calling Outfit Generator API with body:', JSON.stringify(requestBody, null, 2));
 
   try {
@@ -633,7 +636,7 @@ async function processCommandQueue() {
       console.log('Processing outfit generation job with pieces:', JSON.stringify(job.pieces || {}, null, 2));
       const pieces = job.pieces || {};
       const summary = job.summary || buildOutfitSummary(pieces);
-      const result = await callOutfitGeneratorAPI(pieces);
+      const result = await callOutfitGeneratorAPI(pieces, job.userPreferences);
 
       if (result.success) {
         const normalizedImage = result.image ? normalizeBase64Image(result.image) : null;
@@ -874,6 +877,9 @@ app.post("/telegram", async (req, res) => {
           summary: payloadSummary,
           useFullBody: jobPayload.useFullBody
         };
+        if (jobPayload.userPreferences && Object.keys(jobPayload.userPreferences).length > 0) {
+          job.userPreferences = jobPayload.userPreferences;
+        }
         commandQueue.push(job);
         processCommandQueue();
       }

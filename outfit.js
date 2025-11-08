@@ -11,6 +11,8 @@ const OUTFIT_LABELS = {
 };
 
 const OPTIONAL_PROMPT = '¿Quieres agregar prendas opcionales (outerwear, accessories, head)? Responde "si" o "no".';
+const STYLE_INSTRUCTIONS_PROMPT = '¿Necesitas instrucciones de estilo adicionales para el atuendo? Responde "si" o "no".';
+const STYLE_INSTRUCTIONS_INPUT_PROMPT = 'Ingresa las instrucciones de estilo separadas por punto y coma (;) o por líneas distintas. También puedes escribir "skip" para omitirlas.';
 
 const SKIP_INPUTS = new Set(['skip', 'omitir', 'ninguno', 'ninguna', 'none', 'omito', 'saltar', 'saltear']);
 const AFFIRMATIVE_INPUTS = new Set(['si', 'sí', 's', 'yes', 'y']);
@@ -27,7 +29,11 @@ function createOutfitConversationState(botName, botToken) {
       currentPiece: 'fullBody',
       optionalQueue: [...OPTIONAL_OUTFIT_PIECES],
       currentOptionalPiece: null,
-      expectingOptionalConfirmation: false
+      expectingOptionalConfirmation: false,
+      styleInstructions: [],
+      styleInstructionsPrompted: false,
+      expectingStyleInstructionsConfirmation: false,
+      collectingStyleInstructions: false
     }
   };
 }
@@ -194,7 +200,7 @@ async function handleOutfitProgress({
     }
   }
 
-  async function finalizeOutfit() {
+  async function finalizeOutfit({ skipStylePrompt = false } = {}) {
     const filteredPieces = Object.fromEntries(
       Object.entries(outfitState.pieces).filter(([, value]) => Boolean(value))
     );
@@ -215,14 +221,64 @@ async function handleOutfitProgress({
       return;
     }
 
+    if (!skipStylePrompt && !outfitState.styleInstructionsPrompted) {
+      outfitState.styleInstructionsPrompted = true;
+      outfitState.expectingStyleInstructionsConfirmation = true;
+      await sendMessage(STYLE_INSTRUCTIONS_PROMPT);
+      return;
+    }
+
     const summary = buildOutfitSummary(filteredPieces);
     await sendMessage(`⏳ Generando atuendo con: ${summary || 'las piezas seleccionadas'}. Te avisaré cuando esté listo. 🧵`);
     delete chatStatesRef[chatId];
-    await enqueueJob({
+    const jobPayload = {
       pieces: filteredPieces,
       summary,
       useFullBody: outfitState.useFullBody
-    });
+    };
+    if (outfitState.styleInstructions.length > 0) {
+      jobPayload.userPreferences = {
+        styleInstructions: [...outfitState.styleInstructions]
+      };
+    }
+    await enqueueJob(jobPayload);
+  }
+
+  if (outfitState.expectingStyleInstructionsConfirmation) {
+    if (isAffirmative(lowerInput)) {
+      outfitState.expectingStyleInstructionsConfirmation = false;
+      outfitState.collectingStyleInstructions = true;
+      await sendMessage(STYLE_INSTRUCTIONS_INPUT_PROMPT);
+    } else if (isNegative(lowerInput) || isSkip(lowerInput)) {
+      outfitState.expectingStyleInstructionsConfirmation = false;
+      outfitState.styleInstructions = [];
+      await finalizeOutfit({ skipStylePrompt: true });
+    } else {
+      await sendMessage('❗ Responde "si" o "no" para continuar.');
+    }
+    return true;
+  }
+
+  if (outfitState.collectingStyleInstructions) {
+    if (!rawInput || isSkip(lowerInput)) {
+      outfitState.collectingStyleInstructions = false;
+      outfitState.styleInstructions = [];
+      await finalizeOutfit({ skipStylePrompt: true });
+      return true;
+    }
+    const instructions = rawInput
+      .split(/\r?\n|;/)
+      .map(instruction => instruction.trim())
+      .filter(Boolean);
+    if (instructions.length === 0) {
+      await sendMessage('❗ Ingresa al menos una instrucción de estilo o escribe "skip" para omitirlas.');
+      return true;
+    }
+    outfitState.styleInstructions = instructions;
+    outfitState.collectingStyleInstructions = false;
+    await sendMessage('✅ Instrucciones de estilo guardadas.');
+    await finalizeOutfit({ skipStylePrompt: true });
+    return true;
   }
 
   if (outfitState.expectingOptionalConfirmation) {

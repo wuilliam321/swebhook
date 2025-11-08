@@ -1046,10 +1046,25 @@ describe('/outfit conversational flow', () => {
       enqueueJob: async (payload) => { queuedJobs.push(payload); }
     });
 
+    expect(queuedJobs).toHaveLength(0);
+    expect(chatStates[chatId].outfit.expectingStyleInstructionsConfirmation).toBe(true);
+    expect(sendMessageMock).toHaveBeenLastCalledWith(expect.stringContaining('instrucciones de estilo'));
+
+    sendMessageMock.mockClear();
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'no',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
     expect(queuedJobs).toHaveLength(1);
     const payload = queuedJobs[0];
     expect(payload.pieces).toEqual({ fullBody: 'DRESS123', footwear: 'SHOE999' });
     expect(payload.summary).toContain('Prenda completa');
+    expect(payload.userPreferences).toBeUndefined();
     expect(chatStates[chatId]).toBeUndefined();
     expect(sendMessageMock).toHaveBeenLastCalledWith(expect.stringContaining('Generando atuendo'));
   });
@@ -1119,6 +1134,33 @@ describe('/outfit conversational flow', () => {
       enqueueJob: async (payload) => { queuedJobs.push(payload); }
     });
 
+    expect(queuedJobs).toHaveLength(0);
+    expect(chatStates[chatId].outfit.expectingStyleInstructionsConfirmation).toBe(true);
+
+    sendMessageMock.mockClear();
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'si',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    expect(chatStates[chatId].outfit.collectingStyleInstructions).toBe(true);
+    expect(sendMessageMock).toHaveBeenLastCalledWith(expect.stringContaining('Ingresa las instrucciones de estilo'));
+
+    sendMessageMock.mockClear();
+
+    await handleOutfitProgress({
+      chatId,
+      text: 'Cierra la chaqueta; Usa tonos neutros',
+      chatStatesRef: chatStates,
+      sendMessage: sendMessageMock,
+      enqueueJob: async (payload) => { queuedJobs.push(payload); }
+    });
+
+    expect(sendMessageMock).toHaveBeenCalledWith(expect.stringContaining('Instrucciones de estilo guardadas'));
     expect(queuedJobs).toHaveLength(1);
     const payload = queuedJobs[0];
     expect(payload.pieces).toEqual({
@@ -1129,6 +1171,9 @@ describe('/outfit conversational flow', () => {
     });
     expect(payload.useFullBody).toBe(false);
     expect(payload.summary).toContain('Capa exterior');
+    expect(payload.userPreferences).toEqual({
+      styleInstructions: ['Cierra la chaqueta', 'Usa tonos neutros']
+    });
     expect(chatStates[chatId]).toBeUndefined();
   });
 
