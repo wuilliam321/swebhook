@@ -6,7 +6,7 @@ COPY package*.json ./
 
 RUN npm ci --omit=dev
 
-COPY webhook.js ./
-COPY outfit.js ./
+COPY index.js ./
+COPY src ./src
 
-CMD ["node", "webhook.js"]
+CMD ["node", "index.js"]

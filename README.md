@@ -7,7 +7,7 @@ Financial assistant webhook server for WhatsApp and Telegram
 ngrok http --url=beetle-prompt-enormously.ngrok-free.app 8000
 
 # Start the webhook server
-node --env-file=.env webhook.js
+node --env-file=.env index.js
 ```
 
 ## Environment Configuration
@@ -20,7 +20,19 @@ PORT=8000
 DEBUG=false
 GENERATOR_URL=http://192.168.1.26:8001
 TELEGRAM_TOKEN=
+MOCK_TELEGRAM=false
 ```
+
+## Project Structure
+- `index.js`: Entry point of the application.
+- `src/app.js`: Express application setup and route handlers.
+- `src/config.js`: Configuration and environment variable management.
+- `src/logger.js`: Logging setup.
+- `src/utils.js`: Utility functions.
+- `src/state.js`: Chat state management.
+- `src/queue.js`: Command queue processing logic.
+- `src/api/`: API clients for external services (Telegram, Spending, Inventory, PagoMóvil).
+- `src/outfit.js`: Outfit generation logic.
 
 ## Supported Commands
 
