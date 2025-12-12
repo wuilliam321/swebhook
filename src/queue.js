@@ -131,8 +131,8 @@ async function processCommandQueue() {
         if (jobType === 'deposito_lookup') {
             // Handle deposito lookup job
             console.log('Processing deposito lookup...');
-            const { code, isGroupChat } = job;
-            const result = await callDepositoLookupAPI(code);
+            const { code, group, isGroupChat } = job;
+            const result = await callDepositoLookupAPI({ code, group });
 
             if (result.success) {
                 console.log(`Deposito lookup job for ${originalMessageText} completed. data:`, result.data);

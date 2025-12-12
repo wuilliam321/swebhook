@@ -49,17 +49,18 @@ async function callProductLookupAPI(code) {
     }
 }
 
-async function callDepositoLookupAPI(code) {
+async function callDepositoLookupAPI(params) {
+    const { code, group } = params || {};
     if (MOCK_INVENTORY) {
-        console.log(`[MOCK INVENTORY] Looking up deposito info for: ${code}`);
+        console.log(`[MOCK INVENTORY] Looking up deposito info for: ${code || group} (Group: ${!!group})`);
         return {
             success: true,
             data: JSON.stringify({
-                "codigo": code,
+                "codigo": code || "MOCK-CODE",
                 "descripcion": "Producto Deposito Mock",
                 "ubicacion": "Pasillo A - Estante 2",
                 "tienda": "Principal",
-                "grupo": "Ropa Dama",
+                "grupo": group || "Ropa Dama",
                 "tipo": "Blusa",
                 "marca": "Zara",
                 "talla": "M",
@@ -74,9 +75,10 @@ async function callDepositoLookupAPI(code) {
         return { success: false, message: "Inventory API URL not configured." };
     }
 
-    const requestBody = {
-        code: code,
-    };
+    const requestBody = {};
+    if (code) requestBody.code = code;
+    if (group) requestBody.group = group;
+
     console.log('Calling Deposito Lookup API with body:', JSON.stringify(requestBody, null, 2));
 
     try {

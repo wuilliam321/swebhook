@@ -186,7 +186,7 @@ app.post("/telegram", async (req, res) => {
             botName: botName,
             botToken: botToken
         };
-        await sendTelegramMessage(chatId, "🔍 Por favor, ingresa el código del producto para consultar en depósito:", botToken);
+        await sendTelegramMessage(chatId, "🔍 Por favor, ingresa el código del producto o el grupo (ej. 'grupo:Camisas') para consultar en depósito:", botToken);
         res.status(200).send('OK');
         return;
     }
@@ -293,13 +293,24 @@ app.post("/telegram", async (req, res) => {
     // --- /deposito product code input ---
     if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_DEPOSITO_PRODUCT_CODE") {
         const storedBotToken = chatStates[chatId].botToken || botToken;
-        if (userCommand.trim()) {
-            await sendTelegramMessage(chatId, `⏳ Consultando información de depósito para el código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
+        const text = userCommand.trim();
+        if (text) {
+            let code = text;
+            let group = null;
+
+            if (text.toLowerCase().startsWith('group:') || text.toLowerCase().startsWith('grupo:')) {
+                group = text.substring(text.indexOf(':') + 1).trim();
+                code = null;
+            }
+
+            const lookupType = group ? `grupo "${group}"` : `código "${code}"`;
+            await sendTelegramMessage(chatId, `⏳ Consultando información de depósito para el ${lookupType}. Te informaremos cuando esté listo.`, storedBotToken);
 
             const job = {
                 chatId: chatId,
-                code: userCommand.trim(),
-                originalMessageText: userCommand.trim(),
+                code: code,
+                group: group,
+                originalMessageText: text,
                 jobType: 'deposito_lookup',
                 botToken: storedBotToken,
                 isGroupChat: isGroupChat
