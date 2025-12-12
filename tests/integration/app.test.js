@@ -151,7 +151,7 @@ describe('Integration Tests: /telegram endpoint', () => {
         // Job should be processed
         expect(commandQueue.length).toBe(0);
         if (callDepositoLookupAPI) {
-            expect(callDepositoLookupAPI).toHaveBeenCalledWith({ code: 'DEP123', group: null });
+            expect(callDepositoLookupAPI).toHaveBeenCalledWith('DEP123');
         }
     });
 });

@@ -48,40 +48,4 @@ describe('Unit Tests: Queue Processing', () => {
 
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Error registrando gasto'), expect.any(String));
     });
-
-    test('should process deposito_lookup job successfully with code', async () => {
-        const { callDepositoLookupAPI } = require('../../src/api/inventory');
-        callDepositoLookupAPI.mockResolvedValue({ success: true, data: { Codigo: '123' } });
-
-        const job = {
-            chatId: 123,
-            jobType: 'deposito_lookup',
-            code: 'DEP123',
-            group: null,
-            originalMessageText: 'DEP123'
-        };
-        commandQueue.push(job);
-
-        await processCommandQueue();
-
-        expect(callDepositoLookupAPI).toHaveBeenCalledWith({ code: 'DEP123', group: null });
-    });
-
-    test('should process deposito_lookup job successfully with group', async () => {
-        const { callDepositoLookupAPI } = require('../../src/api/inventory');
-        callDepositoLookupAPI.mockResolvedValue({ success: true, data: { Grupo: 'Shirts' } });
-
-        const job = {
-            chatId: 123,
-            jobType: 'deposito_lookup',
-            code: null,
-            group: 'Shirts',
-            originalMessageText: 'group: Shirts'
-        };
-        commandQueue.push(job);
-
-        await processCommandQueue();
-
-        expect(callDepositoLookupAPI).toHaveBeenCalledWith({ code: null, group: 'Shirts' });
-    });
 });
