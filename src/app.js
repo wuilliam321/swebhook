@@ -179,6 +179,18 @@ app.post("/telegram", async (req, res) => {
         return;
     }
 
+    // --- /deposito command: Step 1 ---
+    if (userCommand === "/deposito") {
+        chatStates[chatId] = {
+            state: "WAITING_FOR_DEPOSITO_PRODUCT_CODE",
+            botName: botName,
+            botToken: botToken
+        };
+        await sendTelegramMessage(chatId, "🔍 Por favor, ingresa el código del producto para consultar en depósito:", botToken);
+        res.status(200).send('OK');
+        return;
+    }
+
 
     if (userCommand === "/outfit") {
         const conversationState = createOutfitConversationState(botName, botToken);
@@ -270,6 +282,29 @@ app.post("/telegram", async (req, res) => {
             commandQueue.push(job);
             delete chatStates[chatId];
             // Feedback to user is already sent above
+            processCommandQueue();
+        } else {
+            await sendTelegramMessage(chatId, "❗ Por favor, ingresa un código de producto válido.", storedBotToken);
+        }
+        res.status(200).send('OK');
+        return;
+    }
+
+    // --- /deposito product code input ---
+    if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_DEPOSITO_PRODUCT_CODE") {
+        const storedBotToken = chatStates[chatId].botToken || botToken;
+        if (userCommand.trim()) {
+            await sendTelegramMessage(chatId, `⏳ Consultando información de depósito para el código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
+
+            const job = {
+                chatId: chatId,
+                code: userCommand.trim(),
+                originalMessageText: userCommand.trim(),
+                jobType: 'deposito_lookup',
+                botToken: storedBotToken
+            };
+            commandQueue.push(job);
+            delete chatStates[chatId];
             processCommandQueue();
         } else {
             await sendTelegramMessage(chatId, "❗ Por favor, ingresa un código de producto válido.", storedBotToken);

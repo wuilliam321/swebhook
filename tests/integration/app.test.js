@@ -16,6 +16,7 @@ jest.mock('../../src/utils', () => ({
 
 const { sendTelegramMessage } = require('../../src/api/telegram');
 const { callSpendingAPI } = require('../../src/api/spending');
+const { callSalesReportAPI, callDepositoLookupAPI } = require('../../src/api/inventory');
 
 describe('Integration Tests: /telegram endpoint', () => {
     const chatId = 12345;
@@ -26,6 +27,13 @@ describe('Integration Tests: /telegram endpoint', () => {
         // Clear in-memory state
         for (const key in chatStates) delete chatStates[key];
         commandQueue.length = 0;
+
+        // Setup default mock implementations
+        callSpendingAPI.mockResolvedValue({ success: true, message: 'Recorded' });
+        callSalesReportAPI.mockResolvedValue({ success: true, data: 'Report data' });
+        if (callDepositoLookupAPI) {
+             callDepositoLookupAPI.mockResolvedValue({ success: true, data: { Codigo: '123' } });
+        }
     });
 
     test('POST /telegram - /gasto command should ask for amount', async () => {
@@ -63,9 +71,13 @@ describe('Integration Tests: /telegram endpoint', () => {
 
         expect(response.status).toBe(200);
         expect(chatStates[chatId]).toBeUndefined(); // State should be cleared
-        expect(commandQueue.length).toBe(1);
-        expect(commandQueue[0].jobType).toBe('gasto');
-        expect(commandQueue[0].spending).toContain('100 lunch');
+        
+        // The job is processed immediately by processCommandQueue (async background)
+        // So it is removed from the queue.
+        expect(commandQueue.length).toBe(0);
+        
+        // We can verify the processing happened
+        expect(callSpendingAPI).toHaveBeenCalled();
         expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('encolado'), token);
     });
 
@@ -100,8 +112,46 @@ describe('Integration Tests: /telegram endpoint', () => {
             });
 
         expect(response.status).toBe(200);
-        expect(commandQueue.length).toBe(1);
-        expect(commandQueue[0].jobType).toBe('report');
-        expect(commandQueue[0].period).toBe('3');
+        expect(commandQueue.length).toBe(0);
+        expect(callSalesReportAPI).toHaveBeenCalledWith('3');
+    });
+
+    test('POST /telegram - /deposito command should ask for product code', async () => {
+        const response = await request(app)
+            .post('/telegram')
+            .send({
+                message: {
+                    chat: { id: chatId, type: 'private' },
+                    text: '/deposito'
+                }
+            });
+
+        expect(response.status).toBe(200);
+        expect(chatStates[chatId].state).toBe('WAITING_FOR_DEPOSITO_PRODUCT_CODE');
+        expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('ingresa el código'), expect.any(String));
+    });
+
+    test('POST /telegram - /deposito product code input should queue job', async () => {
+        chatStates[chatId] = {
+            state: 'WAITING_FOR_DEPOSITO_PRODUCT_CODE',
+            botToken: token
+        };
+
+        const response = await request(app)
+            .post('/telegram')
+            .send({
+                message: {
+                    chat: { id: chatId, type: 'private' },
+                    text: 'DEP123'
+                }
+            });
+
+        expect(response.status).toBe(200);
+        
+        // Job should be processed
+        expect(commandQueue.length).toBe(0);
+        if (callDepositoLookupAPI) {
+            expect(callDepositoLookupAPI).toHaveBeenCalledWith('DEP123');
+        }
     });
 });

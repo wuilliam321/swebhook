@@ -49,6 +49,53 @@ async function callProductLookupAPI(code) {
     }
 }
 
+async function callDepositoLookupAPI(code) {
+    if (MOCK_INVENTORY) {
+        console.log(`[MOCK INVENTORY] Looking up deposito info for: ${code}`);
+        return {
+            success: true,
+            data: JSON.stringify({
+                "Codigo": code,
+                "Descripcion": "Producto Deposito Mock",
+                "Ubicacion": "Pasillo A - Estante 2",
+                "Tienda": "Principal",
+                "Grupo": "Ropa Dama",
+                "Tipo": "Blusa",
+                "Marca": "Zara",
+                "Talla": "M",
+                "Color": "Rojo"
+            })
+        };
+    }
+
+    if (!INVENTORY_API_URL) {
+        const errorMessage = "INVENTORY_API_URL environment variable is not set.";
+        console.error(errorMessage);
+        return { success: false, message: "Inventory API URL not configured." };
+    }
+
+    const requestBody = {
+        code: code,
+    };
+    console.log('Calling Deposito Lookup API with body:', JSON.stringify(requestBody, null, 2));
+
+    try {
+        const response = await axios.post(`${INVENTORY_API_URL}/deposito`, requestBody, { timeout: 120000 });
+        console.log('Deposito Lookup API response:', response.data);
+        return { success: true, data: response.data };
+    } catch (error) {
+        console.error("Error calling Deposito Lookup API:", error.response ? error.response.data : error.message);
+        if (error.code === 'ECONNABORTED') {
+            return { success: false, message: "Request timed out" };
+        }
+        if (error.response) {
+            const errorMessage = error.response.data.error || "Unknown error from API";
+            return { success: false, message: `Failed to lookup deposito info: ${errorMessage}` };
+        }
+        return { success: false, message: `Failed to lookup deposito info: ${error.message}` };
+    }
+}
+
 async function callSalesReportAPI(period) {
     if (MOCK_INVENTORY) {
         console.log(`[MOCK INVENTORY] Generating sales report for period: ${period}`);
@@ -147,6 +194,7 @@ async function generateRequest(body) {
 
 module.exports = {
     callProductLookupAPI,
+    callDepositoLookupAPI,
     callSalesReportAPI,
     callOutfitGeneratorAPI,
     generateRequest

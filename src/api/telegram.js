@@ -148,6 +148,36 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
     }
 }
 
+function parseDepositoLookup(jsonOutput) {
+    try {
+        const data = JSON.parse(jsonOutput);
+        
+        // Fields: Ubicacion, tienda, grupo, tipo, descripcion, marca, talla, color
+        const formattedMessage = [
+            `📦 Información de Depósito: ${data.Codigo}`,
+            `📍 Ubicación: ${data.Ubicacion || 'N/A'}`,
+            `🏪 Tienda: ${data.Tienda || 'N/A'}`,
+            `🏷️ Grupo: ${data.Grupo || 'N/A'}`,
+            `👚 Tipo: ${data.Tipo || 'N/A'}`,
+            `📝 Descripción: ${data.Descripcion || 'N/A'}`,
+            `🏷️ Marca: ${data.Marca || 'N/A'}`,
+            `📏 Talla: ${data.Talla || 'N/A'}`,
+            `🎨 Color: ${data.Color || 'N/A'}`,
+        ];
+
+        return {
+            message: formattedMessage.join('\n'),
+            imageUrl: data.Image || null
+        };
+    } catch (error) {
+        console.error('Error parsing deposito lookup JSON:', error);
+        return {
+            message: `Error al procesar la información de depósito: ${error.message}`,
+            imageUrl: null
+        };
+    }
+}
+
 async function sendProductDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN, isGroupChat = false) {
     if (MOCK_TELEGRAM) {
         console.log(`[MOCK TELEGRAM] Sending product details to ${chatId} using token ${token}. Data: ${jsonOutput}`);
@@ -181,6 +211,39 @@ async function sendProductDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN, is
     } catch (error) {
         console.error('Error sending product details:', error);
         return sendTelegramMessage(chatId, `❌ Error al enviar detalles del producto: ${error.message}`, token);
+    }
+}
+
+async function sendDepositoDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN) {
+    if (MOCK_TELEGRAM) {
+        console.log(`[MOCK TELEGRAM] Sending deposito details to ${chatId} using token ${token}. Data: ${jsonOutput}`);
+        return { success: true };
+    }
+
+    try {
+        const { message, imageUrl } = parseDepositoLookup(jsonOutput);
+
+        if (imageUrl) {
+            return axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, {
+                chat_id: chatId,
+                photo: imageUrl,
+                caption: escapeMarkdownV2(message),
+                parse_mode: 'MarkdownV2'
+            })
+            .then(() => {
+                 console.log(`Mensaje de depósito con imagen enviado con éxito`);
+                 return { success: true };
+            })
+            .catch(error => {
+                console.error(`Error al enviar mensaje de depósito con imagen:`, error);
+                return sendTelegramMessage(chatId, message, token);
+            });
+        } else {
+            return sendTelegramMessage(chatId, message, token);
+        }
+    } catch (error) {
+        console.error('Error sending deposito details:', error);
+        return sendTelegramMessage(chatId, `❌ Error al enviar detalles de depósito: ${error.message}`, token);
     }
 }
 
@@ -231,5 +294,6 @@ module.exports = {
     sendTelegramMessage,
     sendOutfitPhoto,
     sendProductDetails,
+    sendDepositoDetails,
     sendFBMessage
 };

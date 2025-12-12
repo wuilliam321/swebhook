@@ -1,8 +1,8 @@
 const { TELEGRAM_TOKEN } = require('./config');
 const { callPagoMovilAPI } = require('./api/pagoMovil');
 const { callSpendingAPI } = require('./api/spending');
-const { callSalesReportAPI, callOutfitGeneratorAPI, callProductLookupAPI } = require('./api/inventory');
-const { sendTelegramMessage, sendOutfitPhoto, sendProductDetails } = require('./api/telegram');
+const { callSalesReportAPI, callOutfitGeneratorAPI, callProductLookupAPI, callDepositoLookupAPI } = require('./api/inventory');
+const { sendTelegramMessage, sendOutfitPhoto, sendProductDetails, sendDepositoDetails } = require('./api/telegram');
 const { buildOutfitSummary, normalizeBase64Image } = require('./outfit'); // Assuming moved to src/outfit.js
 
 const commandQueue = [];
@@ -125,6 +125,21 @@ async function processCommandQueue() {
                 console.log(`Product lookup completed successfully for ${originalMessageText}`);
             } else {
                 await sendTelegramMessage(chatId, `❌ Error al consultar el producto: ${result.message}`, token);
+            }
+        }
+
+        if (jobType === 'deposito_lookup') {
+            // Handle deposito lookup job
+            console.log('Processing deposito lookup...');
+            const { code } = job;
+            const result = await callDepositoLookupAPI(code);
+
+            if (result.success) {
+                console.log(`Deposito lookup job for ${originalMessageText} completed. data:`, result.data);
+                await sendDepositoDetails(chatId, JSON.stringify(result.data), token);
+                console.log(`Deposito lookup completed successfully for ${originalMessageText}`);
+            } else {
+                await sendTelegramMessage(chatId, `❌ Error al consultar depósito: ${result.message}`, token);
             }
         }
     } catch (errorOutcome) {
