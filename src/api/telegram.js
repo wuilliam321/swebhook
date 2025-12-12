@@ -165,10 +165,14 @@ function parseDepositoLookup(jsonOutput, isGroupChat = false) {
             `🏷️ Grupo: ${getProp(data, 'Grupo')}`,
             `👚 Tipo: ${getProp(data, 'Tipo')}`,
             `📝 Descripción: ${getProp(data, 'Descripcion')}`,
-            `🏷️ Marca: ${getProp(data, 'Marca')}`,
-            `📏 Talla: ${getProp(data, 'Talla')}`,
-            `🎨 Color: ${getProp(data, 'Color')}`,
         ];
+
+        if (!isGroupChat) {
+            formattedMessage.push(`🏷️ Marca: ${getProp(data, 'Marca')}`);
+        }
+
+        formattedMessage.push(`📏 Talla: ${getProp(data, 'Talla')}`);
+        formattedMessage.push(`🎨 Color: ${getProp(data, 'Color')}`);
 
         return {
             message: formattedMessage.join('\n'),
