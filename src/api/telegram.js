@@ -152,22 +152,27 @@ function parseDepositoLookup(jsonOutput) {
     try {
         const data = JSON.parse(jsonOutput);
         
+        // Helper to get property case-insensitively
+        const getProp = (obj, key) => obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)] || 'N/A';
+        
+        const code = data.codigo || data.Codigo || data.grupo || data.Grupo || 'N/A';
+
         // Fields: Ubicacion, tienda, grupo, tipo, descripcion, marca, talla, color
         const formattedMessage = [
-            `📦 Información de Depósito: ${data.Codigo}`,
-            `📍 Ubicación: ${data.Ubicacion || 'N/A'}`,
-            `🏪 Tienda: ${data.Tienda || 'N/A'}`,
-            `🏷️ Grupo: ${data.Grupo || 'N/A'}`,
-            `👚 Tipo: ${data.Tipo || 'N/A'}`,
-            `📝 Descripción: ${data.Descripcion || 'N/A'}`,
-            `🏷️ Marca: ${data.Marca || 'N/A'}`,
-            `📏 Talla: ${data.Talla || 'N/A'}`,
-            `🎨 Color: ${data.Color || 'N/A'}`,
+            `📦 Información de Depósito: ${code}`,
+            `📍 Ubicación: ${getProp(data, 'Ubicacion')}`,
+            `🏪 Tienda: ${getProp(data, 'Tienda')}`,
+            `🏷️ Grupo: ${getProp(data, 'Grupo')}`,
+            `👚 Tipo: ${getProp(data, 'Tipo')}`,
+            `📝 Descripción: ${getProp(data, 'Descripcion')}`,
+            `🏷️ Marca: ${getProp(data, 'Marca')}`,
+            `📏 Talla: ${getProp(data, 'Talla')}`,
+            `🎨 Color: ${getProp(data, 'Color')}`,
         ];
 
         return {
             message: formattedMessage.join('\n'),
-            imageUrl: data.Image || null
+            imageUrl: data.Image || data.image || null
         };
     } catch (error) {
         console.error('Error parsing deposito lookup JSON:', error);

@@ -55,15 +55,15 @@ async function callDepositoLookupAPI(code) {
         return {
             success: true,
             data: JSON.stringify({
-                "Codigo": code,
-                "Descripcion": "Producto Deposito Mock",
-                "Ubicacion": "Pasillo A - Estante 2",
-                "Tienda": "Principal",
-                "Grupo": "Ropa Dama",
-                "Tipo": "Blusa",
-                "Marca": "Zara",
-                "Talla": "M",
-                "Color": "Rojo"
+                "codigo": code,
+                "descripcion": "Producto Deposito Mock",
+                "ubicacion": "Pasillo A - Estante 2",
+                "tienda": "Principal",
+                "grupo": "Ropa Dama",
+                "tipo": "Blusa",
+                "marca": "Zara",
+                "talla": "M",
+                "color": "Rojo"
             })
         };
     }
