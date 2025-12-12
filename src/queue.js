@@ -131,12 +131,12 @@ async function processCommandQueue() {
         if (jobType === 'deposito_lookup') {
             // Handle deposito lookup job
             console.log('Processing deposito lookup...');
-            const { code } = job;
+            const { code, isGroupChat } = job;
             const result = await callDepositoLookupAPI(code);
 
             if (result.success) {
                 console.log(`Deposito lookup job for ${originalMessageText} completed. data:`, result.data);
-                await sendDepositoDetails(chatId, JSON.stringify(result.data), token);
+                await sendDepositoDetails(chatId, JSON.stringify(result.data), token, isGroupChat);
                 console.log(`Deposito lookup completed successfully for ${originalMessageText}`);
             } else {
                 await sendTelegramMessage(chatId, `❌ Error al consultar depósito: ${result.message}`, token);

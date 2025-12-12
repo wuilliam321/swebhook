@@ -148,7 +148,7 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
     }
 }
 
-function parseDepositoLookup(jsonOutput) {
+function parseDepositoLookup(jsonOutput, isGroupChat = false) {
     try {
         const data = JSON.parse(jsonOutput);
         
@@ -219,14 +219,14 @@ async function sendProductDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN, is
     }
 }
 
-async function sendDepositoDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN) {
+async function sendDepositoDetails(chatId, jsonOutput, token = TELEGRAM_TOKEN, isGroupChat = false) {
     if (MOCK_TELEGRAM) {
         console.log(`[MOCK TELEGRAM] Sending deposito details to ${chatId} using token ${token}. Data: ${jsonOutput}`);
         return { success: true };
     }
 
     try {
-        const { message, imageUrl } = parseDepositoLookup(jsonOutput);
+        const { message, imageUrl } = parseDepositoLookup(jsonOutput, isGroupChat);
 
         if (imageUrl) {
             return axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, {

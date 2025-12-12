@@ -301,7 +301,8 @@ app.post("/telegram", async (req, res) => {
                 code: userCommand.trim(),
                 originalMessageText: userCommand.trim(),
                 jobType: 'deposito_lookup',
-                botToken: storedBotToken
+                botToken: storedBotToken,
+                isGroupChat: isGroupChat
             };
             commandQueue.push(job);
             delete chatStates[chatId];
