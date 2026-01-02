@@ -106,7 +106,7 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
                 for (const tienda in productsByTienda) {
                     formattedMessage.push(`🏪 ${tienda}:`);
                     productsByTienda[tienda].forEach(product => {
-                        formattedMessage.push(`• ${product.Codigo}-${product.Talla}-${product.Color}`);
+                        formattedMessage.push(`• ${product.Codigo}--${product.Talla}--${product.Ubicacion}`);
                     });
                 }
             }
