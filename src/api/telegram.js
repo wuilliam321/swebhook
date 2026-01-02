@@ -71,6 +71,7 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
             `📏 Talla: ${productData.Talla}`,
             ``,
             `🏪 Tienda: ${productData.Tienda}`,
+            `📍 Ubicación: ${productData.Ubicacion}`,
             ``
         ];
 
@@ -79,59 +80,35 @@ function parseProductLookup(jsonOutput, isGroupChat = false) {
             formattedMessage.push(`💰 Precio de Compra: $${productData["Precio de Compra"]}`);
         }
 
-        formattedMessage.push(`💵 Precio de Venta: $${productData.Monto}`);
+        formattedMessage.push(`💵 Precio $ BCV: $${productData.VES}`);
+        formattedMessage.push(`💵 Precio $ Efectivo: $${productData.USD}`);
         formattedMessage.push(`${productData.Operacion === 'APARTADO' ? '🔒' : productData.Operacion === 'VENDIDO' ? '❌' : productData.Operacion === 'DISPONIBLE' ? '✅' : '🔄'} Estado: ${productData.Operacion}`);
 
 
         // Add other products in the same group if any
         if (groupProducts.length > 0) {
-            formattedMessage.push('');
-            formattedMessage.push('📦 Otros del mismo grupo:');
+            const availableProducts = groupProducts.filter(p => p.Operacion === 'DISPONIBLE');
 
-            // Group products by their status for better organization
-            const productsByStatus = {
-                'DISPONIBLE': [],
-                'APARTADO': [],
-                'VENDIDO': [],
-                'other': []
-            };
+            if (availableProducts.length > 0) {
+                formattedMessage.push('');
+                formattedMessage.push('📦 Disponibles por Tienda:');
 
-            // Sort products into groups by status
-            groupProducts.forEach(product => {
-                if (productsByStatus[product.Operacion]) {
-                    productsByStatus[product.Operacion].push(product);
-                } else {
-                    productsByStatus.other.push(product);
+                // Group available products by tienda
+                const productsByTienda = {};
+                availableProducts.forEach(product => {
+                    if (!productsByTienda[product.Tienda]) {
+                        productsByTienda[product.Tienda] = [];
+                    }
+                    productsByTienda[product.Tienda].push(product);
+                });
+
+                // Display products grouped by tienda
+                for (const tienda in productsByTienda) {
+                    formattedMessage.push(`🏪 ${tienda}:`);
+                    productsByTienda[tienda].forEach(product => {
+                        formattedMessage.push(`• ${product.Codigo}-${product.Talla}-${product.Color}`);
+                    });
                 }
-            });
-
-            // Display products grouped by status, one per line
-            if (productsByStatus.DISPONIBLE.length > 0) {
-                formattedMessage.push(`✅ Disponibles:`);
-                productsByStatus.DISPONIBLE.forEach(product => {
-                    formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
-                });
-            }
-
-            if (productsByStatus.APARTADO.length > 0) {
-                formattedMessage.push(`🔒 Apartados:`);
-                productsByStatus.APARTADO.forEach(product => {
-                    formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
-                });
-            }
-
-            if (productsByStatus.VENDIDO.length > 0) {
-                formattedMessage.push(`❌ Vendidos:`);
-                productsByStatus.VENDIDO.forEach(product => {
-                    formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda}`);
-                });
-            }
-
-            if (productsByStatus.other.length > 0) {
-                formattedMessage.push(`🔄 Otros:`);
-                productsByStatus.other.forEach(product => {
-                    formattedMessage.push(`${product.Codigo}-${product.Talla}-${product.Color}-${product.Tienda} [${product.Operacion}]`);
-                });
             }
         }
 
@@ -304,5 +281,7 @@ module.exports = {
     sendOutfitPhoto,
     sendProductDetails,
     sendDepositoDetails,
-    sendFBMessage
+    sendFBMessage,
+    parseProductLookup,
+    parseDepositoLookup
 };

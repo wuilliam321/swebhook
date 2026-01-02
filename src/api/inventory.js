@@ -14,7 +14,8 @@ async function callProductLookupAPI(code) {
                 "Talla": "Unica",
                 "Tienda": "Principal",
                 "Precio de Compra": "10.00",
-                "Monto": "20.00",
+                "VES": "20.00",
+                "USD": "4.00",
                 "Operacion": "DISPONIBLE",
                 "Image": "https://via.placeholder.com/150"
             })
