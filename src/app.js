@@ -57,7 +57,8 @@ app.post("/telegram", async (req, res) => {
         || req.body.message.chat.type === 'supergroup';
 
     // Handle non-text messages (new chat members, photos, etc.)
-    if (!req.body.message.text) {
+    // We allow non-text messages if we are in a state that expects them (e.g. WAITING_FOR_AMOUNT)
+    if (!req.body.message.text && !chatStates[chatId]) {
         console.log("Received non-text message",
             req.body.message.new_chat_member ? "new_chat_member" :
                 req.body.message.new_chat_members ? "new_chat_members" :
@@ -70,7 +71,7 @@ app.post("/telegram", async (req, res) => {
         return;
     }
 
-    const userCommandRaw = req.body.message.text;
+    const userCommandRaw = req.body.message.text || '';
 
     // Extract bot name and base command if present
     const botName = extractBotName(userCommandRaw);
@@ -82,7 +83,7 @@ app.post("/telegram", async (req, res) => {
     // Log details about the incoming command
     console.log(
         "CHAT req:",
-        userCommandRaw,
+        userCommandRaw ? userCommandRaw : '[Media Message]',
         botName ? `(bot: ${botName})` : '',
         isGroupChat ? '(group chat)' : '(private chat)',
         isValidBotName(botName) ? '(valid bot)' : botName ? '(unknown bot)' : ''
@@ -319,21 +320,77 @@ app.post("/telegram", async (req, res) => {
         // Get the stored bot token for this conversation
         const storedBotToken = chatStates[chatId].botToken || botToken;
 
-        const phone = req.body.message.from ? req.body.message.from.phone_number || req.body.message.from.id || "unknown" : "unknown";
-        const modifiedCommand = `${userCommand} source:${phone}`;
+        const message = req.body.message;
+        const phone = message.from ? message.from.phone_number || message.from.id || "unknown" : "unknown";
+        
+        // Handle different message types
+        let spendingText = userCommand; // Start with the text content (if any)
+        
+        // Use caption if text is empty (common in media messages)
+        if (!spendingText && message.caption) {
+            spendingText = message.caption;
+        }
+
+        let fileId = null;
+        let mediaType = null;
+
+        if (message.voice) {
+            fileId = message.voice.file_id;
+            mediaType = 'voice';
+        } else if (message.audio) {
+            fileId = message.audio.file_id;
+            mediaType = 'audio';
+        } else if (message.photo) {
+             // Take the largest photo
+            const largestPhoto = message.photo[message.photo.length - 1];
+            fileId = largestPhoto.file_id;
+            mediaType = 'photo';
+        }
+
+        // Handle Photo without Caption: Ask for text
+        if (mediaType === 'photo' && !spendingText) {
+             // Store the photo and ask for text
+             chatStates[chatId].pendingFileId = fileId;
+             chatStates[chatId].pendingMediaType = mediaType;
+             
+             await sendTelegramMessage(chatId, "📸 Foto recibida. ¿Cuánto gastaste y en qué? (Envía texto para completar)", storedBotToken);
+             res.status(200).send('OK');
+             return;
+        }
+
+        // Handle Text following a pending Photo
+        if (!fileId && spendingText && chatStates[chatId].pendingFileId) {
+             fileId = chatStates[chatId].pendingFileId;
+             mediaType = chatStates[chatId].pendingMediaType;
+             // We will consume the pending file now
+        }
+
+        if (!spendingText && !fileId) {
+             await sendTelegramMessage(chatId, "❗ Por favor, envía texto, una nota de voz o una foto.", storedBotToken);
+             res.status(200).send('OK');
+             return;
+        }
+
+        const modifiedCommand = `${spendingText || ''} source:${phone}`;
 
         const job = {
             chatId: chatId,
             spending: modifiedCommand,
-            originalMessageText: userCommand, // Store the original message for notifications
+            originalMessageText: spendingText || '[Media]', // Store the text or [Media] for notifications
             jobType: 'gasto',
-            botToken: storedBotToken
+            botToken: storedBotToken,
+            fileId: fileId,
+            mediaType: mediaType
         };
         commandQueue.push(job);
 
         delete chatStates[chatId]; // Delete state *after* queuing the job. 
 
-        await sendTelegramMessage(chatId, `⏳ Gasto "${userCommand}" encolado. Te avisaré cuando esté listo. ✨`, storedBotToken);
+        const confirmationMsg = fileId 
+            ? `⏳ Gasto multimedia recibido. Procesando... ✨`
+            : `⏳ Gasto "${spendingText}" encolado. Te avisaré cuando esté listo. ✨`;
+
+        await sendTelegramMessage(chatId, confirmationMsg, storedBotToken);
 
         processCommandQueue(); // Kick off processing if not already running
 

@@ -28,7 +28,7 @@ describe('Unit Tests: Queue Processing', () => {
 
         await processCommandQueue();
 
-        expect(callSpendingAPI).toHaveBeenCalledWith('100 test', undefined);
+        expect(callSpendingAPI).toHaveBeenCalledWith('100 test', undefined, { fileId: undefined, mediaType: undefined });
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('registrado con éxito'), expect.any(String));
         expect(commandQueue.length).toBe(0);
     });

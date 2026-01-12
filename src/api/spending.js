@@ -1,9 +1,11 @@
 const axios = require('axios').default;
 const { PAGOMOVIL_API_URL, MOCK_SPENDING } = require('../config');
 
-async function callSpendingAPI(spending, sheetId = null) {
+async function callSpendingAPI(spending, sheetId = null, mediaData = {}) {
+    const { fileId, mediaType } = mediaData;
+
     if (MOCK_SPENDING) {
-        console.log(`[MOCK SPENDING] Recording spending: ${spending} (sheetId: ${sheetId})`);
+        console.log(`[MOCK SPENDING] Recording spending: ${spending} (sheetId: ${sheetId}, fileId: ${fileId}, mediaType: ${mediaType})`);
         return { success: true, message: "Gasto registrado (MOCK)" };
     }
 
@@ -16,6 +18,8 @@ async function callSpendingAPI(spending, sheetId = null) {
     const requestBody = {
         spending: spending,
         sheet_id: sheetId,
+        file_id: fileId,
+        media_type: mediaType
     };
     console.log('Calling Spending API with body:', JSON.stringify(requestBody, null, 2));
 

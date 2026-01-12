@@ -154,4 +154,78 @@ describe('Integration Tests: /telegram endpoint', () => {
             expect(callDepositoLookupAPI).toHaveBeenCalledWith('DEP123');
         }
     });
+
+    test('POST /telegram - /gasto voice input should queue job with fileId', async () => {
+        // Setup state
+        chatStates[chatId] = {
+            state: 'WAITING_FOR_AMOUNT',
+            botToken: token
+        };
+
+        const response = await request(app)
+            .post('/telegram')
+            .send({
+                message: {
+                    chat: { id: chatId, type: 'private' },
+                    voice: { file_id: 'voice_123' },
+                    from: { id: 999 }
+                }
+            });
+
+        expect(response.status).toBe(200);
+        expect(chatStates[chatId]).toBeUndefined(); // State should be cleared
+        
+        // Verify callSpendingAPI was called with fileId
+        expect(callSpendingAPI).toHaveBeenCalledWith(
+            expect.stringContaining('source:999'), 
+            undefined, 
+            expect.objectContaining({ fileId: 'voice_123', mediaType: 'voice' })
+        );
+        expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('Gasto multimedia recibido'), token);
+    });
+
+    test('POST /telegram - /gasto photo without caption should ask for text', async () => {
+        // Setup state
+        chatStates[chatId] = {
+            state: 'WAITING_FOR_AMOUNT',
+            botToken: token
+        };
+
+        // 1. Send photo without caption
+        const response1 = await request(app)
+            .post('/telegram')
+            .send({
+                message: {
+                    chat: { id: chatId, type: 'private' },
+                    photo: [{ file_id: 'photo_small' }, { file_id: 'photo_large' }],
+                    from: { id: 999 }
+                }
+            });
+
+        expect(response1.status).toBe(200);
+        expect(chatStates[chatId].state).toBe('WAITING_FOR_AMOUNT'); // State persists
+        expect(chatStates[chatId].pendingFileId).toBe('photo_large');
+        expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('Foto recibida'), token);
+
+        // 2. Send text
+        const response2 = await request(app)
+            .post('/telegram')
+            .send({
+                message: {
+                    chat: { id: chatId, type: 'private' },
+                    text: '50 dinner',
+                    from: { id: 999 }
+                }
+            });
+
+        expect(response2.status).toBe(200);
+        expect(chatStates[chatId]).toBeUndefined(); // State cleared
+        
+        // Verify job queued with combined info
+        expect(callSpendingAPI).toHaveBeenCalledWith(
+            expect.stringContaining('50 dinner'), 
+            undefined, 
+            expect.objectContaining({ fileId: 'photo_large', mediaType: 'photo' })
+        );
+    });
 });

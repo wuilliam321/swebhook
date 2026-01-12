@@ -64,8 +64,8 @@ async function processCommandQueue() {
         }
 
         if (jobType === 'gasto') {
-            const { spending, sheetId } = job;
-            const result = await callSpendingAPI(spending, sheetId);
+            const { spending, sheetId, fileId, mediaType } = job;
+            const result = await callSpendingAPI(spending, sheetId, { fileId, mediaType });
 
             if (result.success) {
                 console.log(`Job for ${originalMessageText} completed. message:`, result.message);

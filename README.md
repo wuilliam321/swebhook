@@ -40,7 +40,12 @@ MOCK_TELEGRAM=false
 
 - `/gasto` - Record an expense
   - Usage: Type `/gasto` then follow the prompts
-  - Example: When prompted, enter "100 for lunch"
+  - Supports:
+    - **Text**: e.g., "100 for lunch".
+    - **Voice Notes**: Description inferred from audio.
+    - **Photos**:
+      - With caption: Processed immediately.
+      - Without caption: Bot will ask you to send the text (amount/description).
 
 - `/report` - Generate financial reports
   - Usage: Type `/report` then select a time period (0-6)
@@ -86,6 +91,21 @@ This is a two-step command.
             "from": { "id": 98765 },
             "chat": { "id": 12345, "type": "private" },
             "text": "100 for lunch"
+        }
+    }
+    ```
+
+3.  **Provide expense details (Voice/Media):**
+    Alternatively, you can send a voice note or photo.
+    ```sh
+    curl --location 'http://localhost:8000/telegram' \
+    --header 'Content-Type: application/json' \
+    --data 
+    {
+        "message": {
+            "from": { "id": 98765 },
+            "chat": { "id": 12345, "type": "private" },
+            "voice": { "file_id": "AgACAgEAAxkBAA..." }
         }
     }
     ```
