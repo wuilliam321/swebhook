@@ -16,7 +16,7 @@ const {
     commandQueue,
     processCommandQueue,
     hasPendingPagoMovilJob,
-    isProcessingPagoMovil
+    isJobDuplicate
 } = require('./queue');
 const {
     sendTelegramMessage,
@@ -113,11 +113,11 @@ app.post("/telegram", async (req, res) => {
         const account = userCommand.substring("/pagomovil_".length);
         if (['wuilliam', 'gilza'].includes(account)) {
 
-            // Check if there's already a pagomovil job processing or queued
-            if (isProcessingPagoMovil || hasPendingPagoMovilJob()) {
+            // Check if there's already a pagomovil job for THIS account processing or queued
+            if (hasPendingPagoMovilJob(account)) {
                 await sendTelegramMessage(
                     chatId,
-                    `⏳ Ya hay una consulta de PagoMóvil en proceso. Por favor espera a que termine antes de solicitar otra.`,
+                    `⏳ Ya hay una consulta de PagoMóvil para "${account}" en proceso. Por favor espera a que termine.`,
                     botToken
                 );
                 res.status(200).send('OK');
@@ -226,6 +226,12 @@ app.post("/telegram", async (req, res) => {
                 if (jobPayload.userPreferences && Object.keys(jobPayload.userPreferences).length > 0) {
                     job.userPreferences = jobPayload.userPreferences;
                 }
+
+                if (isJobDuplicate(job)) {
+                    await sendTelegramMessage(chatId, `⏳ Ya se está generando un atuendo idéntico. Por favor espera.`, storedBotToken);
+                    return;
+                }
+
                 commandQueue.push(job);
                 processCommandQueue();
             }
@@ -241,9 +247,6 @@ app.post("/telegram", async (req, res) => {
         // Only accept numbers 0-6
         const validOptions = ["0", "1", "2", "3", "4", "5", "6"];
         if (validOptions.includes(userCommand.trim())) {
-            // Feedback to user
-            await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 🔒", storedBotToken);
-
             // Enqueue a report generation job
             const job = {
                 chatId: chatId,
@@ -252,9 +255,18 @@ app.post("/telegram", async (req, res) => {
                 jobType: 'report',
                 botToken: storedBotToken
             };
+
+            if (isJobDuplicate(job)) {
+                await sendTelegramMessage(chatId, `⏳ Ya hay una solicitud de reporte para este período en proceso. Por favor espera.`, storedBotToken);
+                res.status(200).send('OK');
+                return;
+            }
+
+            // Feedback to user
+            await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 🔒", storedBotToken);
+
             commandQueue.push(job);
             delete chatStates[chatId];
-            // Feedback to user is already sent above
             processCommandQueue();
         } else {
             await sendTelegramMessage(chatId, "❗ Por favor, responde con un número entre 0 y 6 para seleccionar el período del reporte.", storedBotToken);
@@ -268,9 +280,6 @@ app.post("/telegram", async (req, res) => {
         // Get the stored bot token for this conversation
         const storedBotToken = chatStates[chatId].botToken || botToken;
         if (userCommand.trim()) {
-            // Feedback to user
-            await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
-
             // Enqueue a product lookup job
             const job = {
                 chatId: chatId,
@@ -280,6 +289,16 @@ app.post("/telegram", async (req, res) => {
                 botToken: storedBotToken,
                 isGroupChat: isGroupChat
             };
+
+            if (isJobDuplicate(job)) {
+                await sendTelegramMessage(chatId, `⏳ Ya hay una consulta para el producto "${userCommand.trim()}" en proceso.`, storedBotToken);
+                res.status(200).send('OK');
+                return;
+            }
+
+            // Feedback to user
+            await sendTelegramMessage(chatId, `⏳ Consultando información del producto con código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
+
             commandQueue.push(job);
             delete chatStates[chatId];
             // Feedback to user is already sent above
@@ -295,8 +314,6 @@ app.post("/telegram", async (req, res) => {
     if (chatStates[chatId] && chatStates[chatId].state === "WAITING_FOR_DEPOSITO_PRODUCT_CODE") {
         const storedBotToken = chatStates[chatId].botToken || botToken;
         if (userCommand.trim()) {
-            await sendTelegramMessage(chatId, `⏳ Consultando información de depósito para el código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
-
             const job = {
                 chatId: chatId,
                 code: userCommand.trim(),
@@ -305,6 +322,15 @@ app.post("/telegram", async (req, res) => {
                 botToken: storedBotToken,
                 isGroupChat: isGroupChat
             };
+
+            if (isJobDuplicate(job)) {
+                await sendTelegramMessage(chatId, `⏳ Ya hay una consulta de depósito para el producto "${userCommand.trim()}" en proceso.`, storedBotToken);
+                res.status(200).send('OK');
+                return;
+            }
+
+            await sendTelegramMessage(chatId, `⏳ Consultando información de depósito para el código "${userCommand.trim()}". Te informaremos cuando esté listo.`, storedBotToken);
+
             commandQueue.push(job);
             delete chatStates[chatId];
             processCommandQueue();
@@ -382,6 +408,13 @@ app.post("/telegram", async (req, res) => {
             fileId: fileId,
             mediaType: mediaType
         };
+
+        if (isJobDuplicate(job)) {
+            await sendTelegramMessage(chatId, `⏳ Ya se está procesando este gasto "${spendingText || '[Media]'}".`, storedBotToken);
+            res.status(200).send('OK');
+            return;
+        }
+
         commandQueue.push(job);
 
         delete chatStates[chatId]; // Delete state *after* queuing the job. 

@@ -6,47 +6,75 @@ const { sendTelegramMessage, sendOutfitPhoto, sendProductDetails, sendDepositoDe
 const { buildOutfitSummary, normalizeBase64Image } = require('./outfit'); // Assuming moved to src/outfit.js
 
 const commandQueue = [];
-let isProcessingCommand = false;
-let isProcessingPagoMovil = false;
+let currentJob = null;
 
-// Check if there's already a pagomovil job in queue
-function hasPendingPagoMovilJob() {
-    return commandQueue.some(job => job.jobType === 'pagomovil');
+/**
+ * Checks if a job with the same type and identifying property is already in queue or processing.
+ * @param {Object} job - The job to check
+ * @returns {boolean}
+ */
+function isJobDuplicate(job) {
+    const checkDuplicate = (j) => {
+        if (!j || j.jobType !== job.jobType) return false;
+
+        switch (job.jobType) {
+            case 'pagomovil':
+                return j.account === job.account;
+            case 'gasto':
+                return j.spending === job.spending && j.fileId === job.fileId;
+            case 'report':
+                return j.period === job.period;
+            case 'product_lookup':
+            case 'deposito_lookup':
+                return j.code === job.code;
+            case 'outfit':
+                return JSON.stringify(j.pieces) === JSON.stringify(job.pieces);
+            default:
+                return j.originalMessageText === job.originalMessageText;
+        }
+    };
+
+    if (checkDuplicate(currentJob)) return true;
+    return commandQueue.some(checkDuplicate);
+}
+
+// Check if there's already a pagomovil job in queue or processing
+function hasPendingPagoMovilJob(account) {
+    if (account) {
+        return isJobDuplicate({ jobType: 'pagomovil', account });
+    }
+    return (currentJob && currentJob.jobType === 'pagomovil') || 
+           commandQueue.some(job => job.jobType === 'pagomovil');
 }
 
 async function processCommandQueue() {
-    if (isProcessingCommand || commandQueue.length === 0) {
+    if (currentJob || commandQueue.length === 0) {
         return;
     }
 
-    isProcessingCommand = true;
-    const job = commandQueue.shift();
+    currentJob = commandQueue.shift();
 
-    if (!job) { // Should not happen if length check is done, but as a safeguard
-        isProcessingCommand = false;
+    if (!currentJob) {
         return;
     }
 
-    const { chatId, originalMessageText, jobType, botToken } = job;
+    const { chatId, originalMessageText, jobType, botToken } = currentJob;
     const token = botToken || TELEGRAM_TOKEN; // Use provided token or default
 
     console.log(`Processing job for chatId ${chatId}: ${originalMessageText} (type: ${jobType || 'gasto'})`);
-    console.log('Job details:', JSON.stringify(job, null, 2));
+    console.log('Job details:', JSON.stringify(currentJob, null, 2));
 
     try {
         if (jobType === 'pagomovil') {
-            // Set the pagomovil processing flag
-            isProcessingPagoMovil = true;
-
             console.log('Processing pagomovil search via API...');
-            const { account, isGroupChat } = job;
+            const { account, isGroupChat } = currentJob;
             const result = await callPagoMovilAPI(account, isGroupChat);
 
             if (result.success) {
                 console.log(`Job for ${originalMessageText} completed. message:`, result.message);
                 let output = result.message;
 
-                if (job.isGroupChat) {
+                if (currentJob.isGroupChat) {
                     output = output.split('\n')
                         .filter(line => !line.trim().startsWith('Saldo:'))
                         .join('\n');
@@ -58,13 +86,10 @@ async function processCommandQueue() {
                 // Error is already logged inside callPagoMovilAPI
                 await sendTelegramMessage(chatId, `❌ Error buscando pagomovil: ${result.message}`, token);
             }
-
-            // Clear the pagomovil processing flag
-            isProcessingPagoMovil = false;
         }
 
         if (jobType === 'gasto') {
-            const { spending, sheetId, fileId, mediaType } = job;
+            const { spending, sheetId, fileId, mediaType } = currentJob;
             const result = await callSpendingAPI(spending, sheetId, { fileId, mediaType });
 
             if (result.success) {
@@ -77,7 +102,7 @@ async function processCommandQueue() {
 
         if (jobType === 'report') {
             // Handle report generation job
-            const { period } = job;
+            const { period } = currentJob;
             const result = await callSalesReportAPI(period);
 
             if (result.success) {
@@ -90,10 +115,10 @@ async function processCommandQueue() {
         }
 
         if (jobType === 'outfit') {
-            console.log('Processing outfit generation job with pieces:', JSON.stringify(job.pieces || {}, null, 2));
-            const pieces = job.pieces || {};
-            const summary = job.summary || buildOutfitSummary(pieces);
-            const result = await callOutfitGeneratorAPI(pieces, job.userPreferences);
+            console.log('Processing outfit generation job with pieces:', JSON.stringify(currentJob.pieces || {}, null, 2));
+            const pieces = currentJob.pieces || {};
+            const summary = currentJob.summary || buildOutfitSummary(pieces);
+            const result = await callOutfitGeneratorAPI(pieces, currentJob.userPreferences);
 
             if (result.success) {
                 const normalizedImage = result.image ? normalizeBase64Image(result.image) : null;
@@ -116,7 +141,7 @@ async function processCommandQueue() {
         if (jobType === 'product_lookup') {
             // Handle product lookup job
             console.log('Processing product lookup...');
-            const { code, isGroupChat } = job;
+            const { code, isGroupChat } = currentJob;
             const result = await callProductLookupAPI(code);
 
             if (result.success) {
@@ -131,7 +156,7 @@ async function processCommandQueue() {
         if (jobType === 'deposito_lookup') {
             // Handle deposito lookup job
             console.log('Processing deposito lookup...');
-            const { code, isGroupChat } = job;
+            const { code, isGroupChat } = currentJob;
             const result = await callDepositoLookupAPI(code);
 
             if (result.success) {
@@ -145,11 +170,6 @@ async function processCommandQueue() {
     } catch (errorOutcome) {
         console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
 
-        // Make sure to clear the pagomovil flag on error too
-        if (jobType === 'pagomovil') {
-            isProcessingPagoMovil = false;
-        }
-
         if (jobType === 'gasto') {
             // Handle gasto errors as before
             if (errorOutcome.error && errorOutcome.error.message) {
@@ -161,16 +181,21 @@ async function processCommandQueue() {
             }
         }
     } finally {
-        isProcessingCommand = false;
+        currentJob = null;
         // Trigger processing for the next item in the queue, if any.
         // Use process.nextTick or setTimeout to avoid potential deep recursion issues if many jobs are processed synchronously.
         process.nextTick(processCommandQueue);
     }
 }
 
+function getCurrentJob() {
+    return currentJob;
+}
+
 module.exports = {
     commandQueue,
     processCommandQueue,
     hasPendingPagoMovilJob,
-    isProcessingPagoMovil
+    isJobDuplicate,
+    getCurrentJob
 };
