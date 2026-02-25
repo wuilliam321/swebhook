@@ -17,6 +17,7 @@ jest.mock('../../src/utils', () => ({
 const { sendTelegramMessage } = require('../../src/api/telegram');
 const { callSpendingAPI } = require('../../src/api/spending');
 const { callSalesReportAPI, callDepositoLookupAPI } = require('../../src/api/inventory');
+const { callCierreAPI } = require('../../src/api/pagoMovil');
 
 describe('Integration Tests: /telegram endpoint', () => {
     const chatId = 12345;
@@ -31,9 +32,28 @@ describe('Integration Tests: /telegram endpoint', () => {
         // Setup default mock implementations
         callSpendingAPI.mockResolvedValue({ success: true, message: 'Recorded' });
         callSalesReportAPI.mockResolvedValue({ success: true, data: 'Report data' });
+        callCierreAPI.mockResolvedValue({ success: true, message: 'Cierre data' });
         if (callDepositoLookupAPI) {
              callDepositoLookupAPI.mockResolvedValue({ success: true, data: { Codigo: '123' } });
         }
+    });
+
+    test('POST /telegram - /cierre_wuilliam should queue cierre job', async () => {
+        const response = await request(app)
+            .post('/telegram')
+            .send({
+                message: {
+                    chat: { id: chatId, type: 'private' },
+                    text: '/cierre_wuilliam'
+                }
+            });
+
+        expect(response.status).toBe(200);
+        expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('Calculando cierre'), expect.any(String));
+        
+        // Job should be processed
+        expect(commandQueue.length).toBe(0);
+        expect(callCierreAPI).toHaveBeenCalledWith('wuilliam', false);
     });
 
     test('POST /telegram - /gasto command should ask for amount', async () => {

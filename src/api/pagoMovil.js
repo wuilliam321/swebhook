@@ -38,6 +38,44 @@ async function callPagoMovilAPI(account, group = false, debug = false) {
     }
 }
 
+async function callCierreAPI(account, group = false, debug = false) {
+    if (MOCK_PAGOMOVIL) {
+        console.log(`[MOCK CIERRE] Calculating cierre for ${account} (group: ${group})`);
+        const mockMessage = `Resumen de Cierre (${account.toUpperCase()}):\nTotal: 1500.00\nCantidad: 12\n\n1. +100.00 Pago móvil 1\n2. +1400.00 Pago móvil 2`;
+        return { success: true, message: mockMessage };
+    }
+
+    if (!PAGOMOVIL_API_URL) {
+        const errorMessage = "PAGOMOVIL_API_URL environment variable is not set.";
+        console.error(errorMessage);
+        return { success: false, message: "PagoMóvil API URL not configured." };
+    }
+
+    const requestBody = {
+        account,
+        group,
+        debug
+    };
+    console.log('Calling Cierre API with body:', JSON.stringify(requestBody, null, 2));
+
+    try {
+        const response = await axios.post(`${PAGOMOVIL_API_URL}/cierre`, requestBody, { timeout: 120000 }); // 2 minute timeout
+        console.log('Cierre API response:', response.data);
+        return { success: true, message: response.data.message };
+    } catch (error) {
+        console.error("Error calling Cierre API:", error.response ? error.response.data : error.message);
+        if (error.code === 'ECONNABORTED') {
+            return { success: false, message: "Request timed out" };
+        }
+        if (error.response) {
+            const errorMessage = error.response.data.error || "Unknown error from API";
+            return { success: false, message: `Failed to calculate cierre: ${errorMessage}` };
+        }
+        return { success: false, message: `Failed to calculate cierre: ${error.message}` };
+    }
+}
+
 module.exports = {
-    callPagoMovilAPI
+    callPagoMovilAPI,
+    callCierreAPI
 };

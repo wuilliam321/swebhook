@@ -16,6 +16,7 @@ const {
     commandQueue,
     processCommandQueue,
     hasPendingPagoMovilJob,
+    hasPendingCierreJob,
     isJobDuplicate
 } = require('./queue');
 const {
@@ -140,6 +141,43 @@ app.post("/telegram", async (req, res) => {
             await sendTelegramMessage(chatId, `⏳ Consultando transacciones de PagoMóvil ${capitalizedAccount} en BBVA Provincial. Te avisaré cuando esté listo. 🔍`, botToken);
 
             processCommandQueue(); // Kick off processing if not already running
+        }
+        res.status(200).send('OK');
+        return;
+    }
+
+    // --- /cierre command ---
+    if (userCommand.startsWith("/cierre_")) {
+        const account = userCommand.substring("/cierre_".length);
+        if (['wuilliam', 'gilza'].includes(account)) {
+
+            // Check if there's already a cierre job for THIS account processing or queued
+            if (hasPendingCierreJob(account)) {
+                await sendTelegramMessage(
+                    chatId,
+                    `⏳ Ya hay una solicitud de cierre para "${account}" en proceso. Por favor espera a que termine.`,
+                    botToken
+                );
+                res.status(200).send('OK');
+                return;
+            }
+
+            const job = {
+                chatId: chatId,
+                account: account,
+                originalMessageText: userCommandRaw,
+                jobType: 'cierre',
+                botToken: botToken,
+                isGroupChat: isGroupChat
+            };
+            commandQueue.push(job);
+
+            delete chatStates[chatId];
+
+            const capitalizedAccount = account.charAt(0).toUpperCase() + account.slice(1);
+            await sendTelegramMessage(chatId, `⏳ Calculando cierre de PagoMóvil ${capitalizedAccount} en BBVA Provincial. Te avisaré cuando esté listo. 🏦`, botToken);
+
+            processCommandQueue();
         }
         res.status(200).send('OK');
         return;

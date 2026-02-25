@@ -1,6 +1,7 @@
-const { isJobDuplicate, commandQueue, processCommandQueue, hasPendingPagoMovilJob } = require('../../src/queue');
+const { isJobDuplicate, commandQueue, processCommandQueue, hasPendingPagoMovilJob, hasPendingCierreJob } = require('../../src/queue');
 const { callSpendingAPI } = require('../../src/api/spending');
 const { sendTelegramMessage } = require('../../src/api/telegram');
+const { callCierreAPI, callPagoMovilAPI } = require('../../src/api/pagoMovil');
 
 jest.mock('../../src/api/spending');
 jest.mock('../../src/api/telegram');
@@ -12,6 +13,27 @@ describe('Unit Tests: Queue Processing and Duplicate Detection', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         commandQueue.length = 0;
+
+        // Default mock implementations to avoid undefined.success errors
+        callPagoMovilAPI.mockResolvedValue({ success: true, message: 'PagoMovil message' });
+        callCierreAPI.mockResolvedValue({ success: true, message: 'Cierre message' });
+        sendTelegramMessage.mockResolvedValue({ success: true });
+    });
+
+    test('should process cierre job successfully', async () => {
+        const job = {
+            chatId: 123,
+            jobType: 'cierre',
+            account: 'wuilliam',
+            originalMessageText: '/cierre_wuilliam'
+        };
+        commandQueue.push(job);
+
+        await processCommandQueue();
+
+        expect(callCierreAPI).toHaveBeenCalledWith('wuilliam', undefined);
+        expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Cierre de Caja'), expect.any(String));
+        expect(commandQueue.length).toBe(0);
     });
 
     test('should process gasto job successfully', async () => {

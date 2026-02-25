@@ -1,5 +1,5 @@
 const { TELEGRAM_TOKEN } = require('./config');
-const { callPagoMovilAPI } = require('./api/pagoMovil');
+const { callPagoMovilAPI, callCierreAPI } = require('./api/pagoMovil');
 const { callSpendingAPI } = require('./api/spending');
 const { callSalesReportAPI, callOutfitGeneratorAPI, callProductLookupAPI, callDepositoLookupAPI } = require('./api/inventory');
 const { sendTelegramMessage, sendOutfitPhoto, sendProductDetails, sendDepositoDetails } = require('./api/telegram');
@@ -19,6 +19,7 @@ function isJobDuplicate(job) {
 
         switch (job.jobType) {
             case 'pagomovil':
+            case 'cierre':
                 return j.account === job.account;
             case 'gasto':
                 return j.spending === job.spending && j.fileId === job.fileId;
@@ -45,6 +46,15 @@ function hasPendingPagoMovilJob(account) {
     }
     return (currentJob && currentJob.jobType === 'pagomovil') || 
            commandQueue.some(job => job.jobType === 'pagomovil');
+}
+
+// Check if there's already a cierre job in queue or processing
+function hasPendingCierreJob(account) {
+    if (account) {
+        return isJobDuplicate({ jobType: 'cierre', account });
+    }
+    return (currentJob && currentJob.jobType === 'cierre') || 
+           commandQueue.some(job => job.jobType === 'cierre');
 }
 
 async function processCommandQueue() {
@@ -85,6 +95,20 @@ async function processCommandQueue() {
             } else {
                 // Error is already logged inside callPagoMovilAPI
                 await sendTelegramMessage(chatId, `❌ Error buscando pagomovil: ${result.message}`, token);
+            }
+        }
+
+        if (jobType === 'cierre') {
+            console.log('Processing cierre calculation via API...');
+            const { account, isGroupChat } = currentJob;
+            const result = await callCierreAPI(account, isGroupChat);
+
+            if (result.success) {
+                console.log(`Job for ${originalMessageText} completed. message:`, result.message);
+                await sendTelegramMessage(chatId, `🏦 *Cierre de Caja - BBVA Provincial*\n\n${result.message}`, token);
+                console.log(`Cierre calculation completed successfully for ${originalMessageText}`);
+            } else {
+                await sendTelegramMessage(chatId, `❌ Error calculando cierre: ${result.message}`, token);
             }
         }
 
@@ -196,6 +220,7 @@ module.exports = {
     commandQueue,
     processCommandQueue,
     hasPendingPagoMovilJob,
+    hasPendingCierreJob,
     isJobDuplicate,
     getCurrentJob
 };
