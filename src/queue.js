@@ -1,5 +1,5 @@
 const { TELEGRAM_TOKEN } = require('./config');
-const { callPagoMovilAPI, callCierreAPI } = require('./api/pagoMovil');
+const { callPagoMovilAPI, callCierreAPI, callCasheaAbonosAPI } = require('./api/pagoMovil');
 const { callSpendingAPI } = require('./api/spending');
 const { callSalesReportAPI, callOutfitGeneratorAPI, callProductLookupAPI, callDepositoLookupAPI } = require('./api/inventory');
 const { sendTelegramMessage, sendOutfitPhoto, sendProductDetails, sendDepositoDetails } = require('./api/telegram');
@@ -20,6 +20,7 @@ function isJobDuplicate(job) {
         switch (job.jobType) {
             case 'pagomovil':
             case 'cierre':
+            case 'cashea_abonos':
                 return j.account === job.account;
             case 'gasto':
                 return j.spending === job.spending && j.fileId === job.fileId;
@@ -53,8 +54,44 @@ function hasPendingCierreJob(account) {
     if (account) {
         return isJobDuplicate({ jobType: 'cierre', account });
     }
-    return (currentJob && currentJob.jobType === 'cierre') || 
+    return (currentJob && currentJob.jobType === 'cierre') ||
            commandQueue.some(job => job.jobType === 'cierre');
+}
+
+// Check if there's already a cashea_abonos job in queue or processing
+function hasPendingCasheaAbonosJob(account) {
+    if (account) {
+        return isJobDuplicate({ jobType: 'cashea_abonos', account });
+    }
+    return (currentJob && currentJob.jobType === 'cashea_abonos') ||
+           commandQueue.some(job => job.jobType === 'cashea_abonos');
+}
+
+function parseCasheaTotal(message) {
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, '0');
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const yyyy = today.getFullYear();
+    const todayStr = `${dd}/${mm}/${yyyy}`;
+
+    const lines = message.split('\n').filter(line => line.trim());
+    const casheaLines = lines.filter(line =>
+        line.startsWith(todayStr) && line.includes('Credito Inmediato Recibido')
+    );
+
+    let total = 0;
+    for (const line of casheaLines) {
+        const parts = line.split('|');
+        if (parts.length >= 4) {
+            const amountStr = parts[3].trim();
+            const amount = parseFloat(amountStr.replace(/\./g, '').replace(',', '.'));
+            if (!isNaN(amount)) {
+                total += amount;
+            }
+        }
+    }
+
+    return { total, count: casheaLines.length, lines: casheaLines };
 }
 
 async function processCommandQueue() {
@@ -177,6 +214,32 @@ async function processCommandQueue() {
             }
         }
 
+        if (jobType === 'cashea_abonos') {
+            console.log('Processing cashea abonos via BNC API...');
+            const { account } = currentJob;
+            const result = await callCasheaAbonosAPI(account);
+
+            if (result.success) {
+                const { total, count, lines } = parseCasheaTotal(result.message);
+                const formattedTotal = total.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const detail = lines.map(l => {
+                    const parts = l.split('|');
+                    const time = parts[0].trim().split(' ').slice(1, 4).join(' ');
+                    const amount = parts[3] ? parts[3].trim() : '';
+                    return `• ${time} — Bs ${amount}`;
+                }).join('\n');
+
+                const responseMsg = count > 0
+                    ? `💰 *Cashea Abonos BNC - ${account.charAt(0).toUpperCase() + account.slice(1)}*\n\n${detail}\n\n*Total: Bs ${formattedTotal}* (${count} transacciones)`
+                    : `💰 *Cashea Abonos BNC - ${account.charAt(0).toUpperCase() + account.slice(1)}*\n\nNo hay abonos Cashea registrados hoy.`;
+
+                await sendTelegramMessage(chatId, responseMsg, token);
+                console.log(`Cashea abonos completed for ${account}: ${count} txns, total ${total}`);
+            } else {
+                await sendTelegramMessage(chatId, `❌ Error consultando cashea abonos: ${result.message}`, token);
+            }
+        }
+
         if (jobType === 'deposito_lookup') {
             // Handle deposito lookup job
             console.log('Processing deposito lookup...');
@@ -221,6 +284,7 @@ module.exports = {
     processCommandQueue,
     hasPendingPagoMovilJob,
     hasPendingCierreJob,
+    hasPendingCasheaAbonosJob,
     isJobDuplicate,
     getCurrentJob
 };

@@ -17,6 +17,7 @@ const {
     processCommandQueue,
     hasPendingPagoMovilJob,
     hasPendingCierreJob,
+    hasPendingCasheaAbonosJob,
     isJobDuplicate
 } = require('./queue');
 const {
@@ -176,6 +177,41 @@ app.post("/telegram", async (req, res) => {
 
             const capitalizedAccount = account.charAt(0).toUpperCase() + account.slice(1);
             await sendTelegramMessage(chatId, `⏳ Calculando cierre de PagoMóvil ${capitalizedAccount} en BBVA Provincial. Te avisaré cuando esté listo. 🏦`, botToken);
+
+            processCommandQueue();
+        }
+        res.status(200).send('OK');
+        return;
+    }
+
+    // --- /cashea_abonos command ---
+    if (userCommand.startsWith("/cashea_abonos_")) {
+        const account = userCommand.substring("/cashea_abonos_".length);
+        if (['wuilliam', 'gilza'].includes(account)) {
+
+            if (hasPendingCasheaAbonosJob(account)) {
+                await sendTelegramMessage(
+                    chatId,
+                    `⏳ Ya hay una consulta de Cashea Abonos para "${account}" en proceso. Por favor espera a que termine.`,
+                    botToken
+                );
+                res.status(200).send('OK');
+                return;
+            }
+
+            const job = {
+                chatId: chatId,
+                account: account,
+                originalMessageText: userCommandRaw,
+                jobType: 'cashea_abonos',
+                botToken: botToken
+            };
+            commandQueue.push(job);
+
+            delete chatStates[chatId];
+
+            const capitalizedAccount = account.charAt(0).toUpperCase() + account.slice(1);
+            await sendTelegramMessage(chatId, `⏳ Consultando Cashea Abonos BNC de ${capitalizedAccount}. Te avisaré cuando esté listo. 🔍`, botToken);
 
             processCommandQueue();
         }

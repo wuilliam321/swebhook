@@ -75,7 +75,40 @@ async function callCierreAPI(account, group = false, debug = false) {
     }
 }
 
+async function callCasheaAbonosAPI(account, debug = false) {
+    if (MOCK_PAGOMOVIL) {
+        console.log(`[MOCK CASHEA] Checking cashea abonos for ${account}`);
+        const mockMessage = `26/02/2026 10:16:10 p. m. | Credito Inmediato Recibido | 22152942980643 | 7.810,63\n26/02/2026 09:43:19 p. m. | Credito Inmediato Recibido | 21422142979183 | 5.755,20\n26/02/2026 06:17:28 p. m. | Abono Pago Movil BNC | 181656003662 | 9.454,97\n`;
+        return { success: true, message: mockMessage };
+    }
+
+    if (!PAGOMOVIL_API_URL) {
+        console.error("PAGOMOVIL_API_URL environment variable is not set.");
+        return { success: false, message: "PagoMóvil API URL not configured." };
+    }
+
+    const requestBody = { account, debug };
+    console.log('Calling Cashea Abonos API (BNC) with body:', JSON.stringify(requestBody, null, 2));
+
+    try {
+        const response = await axios.post(`${PAGOMOVIL_API_URL}/bnc`, requestBody, { timeout: 120000 });
+        console.log('Cashea Abonos API response:', response.data);
+        return { success: true, message: response.data.message };
+    } catch (error) {
+        console.error("Error calling Cashea Abonos API:", error.response ? error.response.data : error.message);
+        if (error.code === 'ECONNABORTED') {
+            return { success: false, message: "Request timed out" };
+        }
+        if (error.response) {
+            const errorMessage = error.response.data.error || "Unknown error from API";
+            return { success: false, message: `Failed to extract cashea abonos: ${errorMessage}` };
+        }
+        return { success: false, message: `Failed to extract cashea abonos: ${error.message}` };
+    }
+}
+
 module.exports = {
     callPagoMovilAPI,
-    callCierreAPI
+    callCierreAPI,
+    callCasheaAbonosAPI
 };
