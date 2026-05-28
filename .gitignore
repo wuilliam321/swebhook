@@ -131,3 +131,4 @@ dist
 .pnp.*
 
 .zedservice-account-firebase.json
+service-account-firebase.json

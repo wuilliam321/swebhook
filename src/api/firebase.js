@@ -56,13 +56,11 @@ async function getEmployeesByRole(role = 'employee') {
 
         const employees = [];
         
-        // Iterate through categories (e.g., admin, others)
-        for (const category in data) {
-            const users = data[category];
-            for (const username in users) {
-                if (users[username].role === role) {
-                    employees.push(username);
-                }
+        // data contains usernames directly under '7db-adm/users'
+        for (const username in data) {
+            const user = data[username];
+            if (user && user.role === role) {
+                employees.push(username);
             }
         }
 
