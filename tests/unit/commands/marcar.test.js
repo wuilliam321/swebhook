@@ -1,12 +1,13 @@
 const marcarCommand = require('../../../src/commands/marcar');
 const { commandQueue, processCommandQueue } = require('../../../src/queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../../../src/api/telegram');
-const { getEmployeesByRole } = require('../../../src/api/firebase');
+const { getEmployeesByRole, getReminders } = require('../../../src/api/firebase');
 
 jest.mock('../../../src/queue');
 jest.mock('../../../src/api/telegram');
 jest.mock('../../../src/api/firebase', () => ({
-    getEmployeesByRole: jest.fn()
+    getEmployeesByRole: jest.fn(),
+    getReminders: jest.fn()
 }));
 
 describe('Command: Marcar', () => {
@@ -15,6 +16,7 @@ describe('Command: Marcar', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         getEmployeesByRole.mockResolvedValue(['Ana', 'Maria']);
+        getReminders.mockResolvedValue(['Cierre caja?', 'Cierre punto?']);
         context = {
             chatId: 123,
             userCommandRaw: '/marcar',
@@ -39,6 +41,7 @@ describe('Command: Marcar', () => {
         expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_EMPLOYEE_NAME' })).toBe(true);
         expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_STORE' })).toBe(true);
         expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_ASISTENCIA_ACTION' })).toBe(true);
+        expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_REMINDER_CONFIRMATION' })).toBe(true);
         expect(marcarCommand.canHandle('/other', null)).toBe(false);
     });
 
@@ -94,7 +97,7 @@ describe('Command: Marcar', () => {
         );
     });
 
-    test('Step 4: Action selected should enqueue job, remove keyboard and clear state', async () => {
+    test('Step 4: Non-Cierre action selected should enqueue job immediately', async () => {
         context.userCommand = '☀️ Apertura';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_ASISTENCIA_ACTION', 
@@ -109,11 +112,74 @@ describe('Command: Marcar', () => {
             jobType: 'asistencia',
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: '☀️ Apertura',
-            botToken: 'token123'
+            accion: '☀️ Apertura'
         }));
         expect(context.chatStates[123]).toBeUndefined();
-        expect(removeTelegramKeyboard).toHaveBeenCalledWith(123, expect.any(String), 'token123');
-        expect(processCommandQueue).toHaveBeenCalled();
+    });
+
+    test('Step 4: Cierre action should fetch reminders and prompt first one', async () => {
+        context.userCommand = '🌙 Cierre';
+        context.chatStates[123] = { 
+            state: 'WAITING_FOR_ASISTENCIA_ACTION', 
+            nombre: 'Ana',
+            tienda: 'Rodeo',
+            botToken: 'token123' 
+        };
+        
+        await marcarCommand.execute(context);
+        
+        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(context.chatStates[123].state).toBe('WAITING_FOR_REMINDER_CONFIRMATION');
+        expect(context.chatStates[123].pendingReminders).toEqual(['Cierre caja?', 'Cierre punto?']);
+        expect(sendTelegramKeyboard).toHaveBeenCalledWith(
+            123, 
+            expect.stringContaining('¿Cierre caja?'), 
+            [["✅ Confirmado"]], 
+            'token123'
+        );
+    });
+
+    test('Step 5: Confirm reminder should show next reminder if available', async () => {
+        context.userCommand = '✅ Confirmado';
+        context.chatStates[123] = { 
+            state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
+            nombre: 'Ana',
+            tienda: 'Rodeo',
+            accion: '🌙 Cierre',
+            pendingReminders: ['Cierre caja?', 'Cierre punto?'],
+            botToken: 'token123' 
+        };
+        
+        await marcarCommand.execute(context);
+        
+        expect(context.chatStates[123].pendingReminders).toEqual(['Cierre punto?']);
+        expect(sendTelegramKeyboard).toHaveBeenCalledWith(
+            123, 
+            expect.stringContaining('¿Cierre punto?'), 
+            [["✅ Confirmado"]], 
+            'token123'
+        );
+    });
+
+    test('Step 5: Confirm last reminder should enqueue job', async () => {
+        context.userCommand = '✅ Confirmado';
+        context.chatStates[123] = { 
+            state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
+            nombre: 'Ana',
+            tienda: 'Rodeo',
+            accion: '🌙 Cierre',
+            pendingReminders: ['Cierre punto?'], // Only one left
+            botToken: 'token123' 
+        };
+        
+        await marcarCommand.execute(context);
+        
+        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+            jobType: 'asistencia',
+            nombre: 'Ana',
+            tienda: 'Rodeo',
+            accion: '🌙 Cierre'
+        }));
+        expect(context.chatStates[123]).toBeUndefined();
     });
 });

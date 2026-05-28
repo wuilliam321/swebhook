@@ -1,6 +1,6 @@
 const { commandQueue, processCommandQueue } = require('../queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
-const { getEmployeesByRole } = require('../api/firebase');
+const { getEmployeesByRole, getReminders } = require('../api/firebase');
 
 const STORES = [
     ["Rodeo", "History"],
@@ -23,9 +23,28 @@ function chunkArray(array, size) {
     return chunked;
 }
 
+async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
+    const { nombre, tienda, accion } = chatState;
+    const job = {
+        chatId: chatId,
+        nombre,
+        tienda,
+        accion,
+        jobType: 'asistencia',
+        botToken: storedBotToken,
+        originalMessageText: `/marcar ${nombre} ${tienda} ${accion}`
+    };
+
+    commandQueue.push(job);
+    delete chatStates[chatId];
+
+    await removeTelegramKeyboard(chatId, `✅ ¡Listo! Registrando asistencia: ${accion} para ${nombre} en ${tienda}. ✨`, storedBotToken);
+    processCommandQueue();
+}
+
 /**
  * Command to handle employee attendance marking.
- * Flow: /marcar -> Select Name -> Select Store -> Select Action
+ * Flow: /marcar -> Select Name -> Select Store -> Select Action -> (If Cierre) Confirm Reminders
  */
 module.exports = {
     /**
@@ -36,7 +55,8 @@ module.exports = {
                (chatState && [
                    "WAITING_FOR_EMPLOYEE_NAME", 
                    "WAITING_FOR_STORE", 
-                   "WAITING_FOR_ASISTENCIA_ACTION"
+                   "WAITING_FOR_ASISTENCIA_ACTION",
+                   "WAITING_FOR_REMINDER_CONFIRMATION"
                ].includes(chatState.state)) || 
                false;
     },
@@ -90,24 +110,43 @@ module.exports = {
 
         // --- Step 4: Action Selection ---
         if (chatState.state === "WAITING_FOR_ASISTENCIA_ACTION") {
-            const { nombre, tienda } = chatState;
-            const accion = userCommand;
+            chatState.accion = userCommand;
 
-            const job = {
-                chatId: chatId,
-                nombre,
-                tienda,
-                accion,
-                jobType: 'asistencia',
-                botToken: storedBotToken,
-                originalMessageText: `/marcar ${nombre} ${tienda} ${accion}`
-            };
+            if (userCommand.includes("Cierre")) {
+                const reminders = await getReminders();
+                if (reminders && reminders.length > 0) {
+                    chatState.pendingReminders = reminders;
+                    chatState.state = "WAITING_FOR_REMINDER_CONFIRMATION";
+                    
+                    const firstReminder = chatState.pendingReminders[0];
+                    await sendTelegramKeyboard(chatId, `🔔 Recordatorio de Cierre:\n\n¿${firstReminder}?`, [["✅ Confirmado"]], storedBotToken);
+                    return;
+                }
+            }
 
-            commandQueue.push(job);
-            delete chatStates[chatId];
+            return await finishAsistencia(chatId, chatState, storedBotToken, chatStates);
+        }
 
-            await removeTelegramKeyboard(chatId, `✅ ¡Listo! Registrando asistencia: ${accion} para ${nombre} en ${tienda}. ✨`, storedBotToken);
-            processCommandQueue();
+        // --- Step 5: Reminder Confirmation ---
+        if (chatState.state === "WAITING_FOR_REMINDER_CONFIRMATION") {
+            if (userCommand === "✅ Confirmado") {
+                chatState.pendingReminders.shift(); // remove the confirmed one
+                
+                if (chatState.pendingReminders.length > 0) {
+                    // Show next reminder
+                    const nextReminder = chatState.pendingReminders[0];
+                    await sendTelegramKeyboard(chatId, `🔔 Recordatorio de Cierre:\n\n¿${nextReminder}?`, [["✅ Confirmado"]], storedBotToken);
+                    return;
+                } else {
+                    // All reminders confirmed, finish
+                    return await finishAsistencia(chatId, chatState, storedBotToken, chatStates);
+                }
+            } else {
+                // If they typed something else, resend the current reminder
+                const currentReminder = chatState.pendingReminders[0];
+                await sendTelegramKeyboard(chatId, `⚠️ Por favor confirma para poder continuar.\n\n¿${currentReminder}?`, [["✅ Confirmado"]], storedBotToken);
+                return;
+            }
         }
     }
 };

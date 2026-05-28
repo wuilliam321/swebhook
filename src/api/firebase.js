@@ -71,6 +71,39 @@ async function getEmployeesByRole(role = 'employee') {
     }
 }
 
+/**
+ * Fetches reminders from Firebase.
+ * @returns {Promise<string[]>} List of reminder titles
+ */
+async function getReminders() {
+    const database = initializeFirebase();
+    if (!database) return [];
+
+    try {
+        const remindersRef = database.ref('7db-adm/reminders');
+        const snapshot = await remindersRef.once('value');
+        const data = snapshot.val();
+
+        if (!data) return [];
+
+        const reminders = [];
+        
+        // data contains reminder keys directly under '7db-adm/reminders'
+        for (const key in data) {
+            const reminder = data[key];
+            if (reminder && reminder.titulo) {
+                reminders.push(reminder.titulo);
+            }
+        }
+
+        return reminders;
+    } catch (error) {
+        console.error('Error fetching reminders from Firebase:', error.message);
+        return [];
+    }
+}
+
 module.exports = {
-    getEmployeesByRole
+    getEmployeesByRole,
+    getReminders
 };
