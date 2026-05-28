@@ -1,10 +1,6 @@
 const { commandQueue, processCommandQueue } = require('../queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
-
-const EMPLOYEES = [
-    ["Ana", "Maria"],
-    ["Elena", "Sofía"]
-];
+const { getEmployeesByRole } = require('../api/firebase');
 
 const STORES = [
     ["Rodeo", "History"],
@@ -15,6 +11,17 @@ const ACTIONS = [
     ["☀️ Apertura", "🍽️ Ir a comer"],
     ["🔙 Volver de comer", "🌙 Cierre"]
 ];
+
+/**
+ * Utility to chunk an array into rows for Telegram keyboard.
+ */
+function chunkArray(array, size) {
+    const chunked = [];
+    for (let i = 0; i < array.length; i += size) {
+        chunked.push(array.slice(i, i + size));
+    }
+    return chunked;
+}
 
 /**
  * Command to handle employee attendance marking.
@@ -43,12 +50,22 @@ module.exports = {
 
         // --- Step 1: Initial Command ---
         if (userCommand === "/marcar") {
+            const employees = await getEmployeesByRole('employee');
+            
+            if (employees.length === 0) {
+                const { sendTelegramMessage } = require('../api/telegram');
+                await sendTelegramMessage(chatId, "⚠️ No se encontraron empleadas registradas en el sistema.", botToken);
+                return;
+            }
+
+            const employeeKeyboard = chunkArray(employees, 2);
+
             chatStates[chatId] = {
                 state: "WAITING_FOR_EMPLOYEE_NAME",
                 botName: botName,
                 botToken: botToken
             };
-            await sendTelegramKeyboard(chatId, "👋 ¡Hola! Vamos a registrar tu asistencia. ¿Quién eres?", EMPLOYEES, botToken);
+            await sendTelegramKeyboard(chatId, "👋 ¡Hola! Vamos a registrar tu asistencia. ¿Quién eres?", employeeKeyboard, botToken);
             return;
         }
 

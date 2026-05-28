@@ -1,15 +1,18 @@
 const marcarCommand = require('../../../src/commands/marcar');
 const { commandQueue, processCommandQueue } = require('../../../src/queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../../../src/api/telegram');
+const { getEmployeesByRole } = require('../../../src/api/firebase');
 
 jest.mock('../../../src/queue');
 jest.mock('../../../src/api/telegram');
+jest.mock('../../../src/api/firebase');
 
 describe('Command: Marcar', () => {
     let context;
 
     beforeEach(() => {
         jest.clearAllMocks();
+        getEmployeesByRole.mockResolvedValue(['Ana', 'Maria']);
         context = {
             chatId: 123,
             userCommandRaw: '/marcar',
