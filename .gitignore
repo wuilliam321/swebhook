@@ -130,4 +130,4 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-.zed
+.zedservice-account-firebase.json

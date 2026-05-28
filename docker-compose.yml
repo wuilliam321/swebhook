@@ -12,6 +12,8 @@ services:
     environment:
       - PAGOMOVIL_API_URL=http://pagomovil-api:5000
       - INVENTORY_API_URL=http://inventariodb-api:5001
+    volumes:
+      - ./service-account-firebase.json:/app/service-account-firebase.json
     networks:
       - 7db-family
 

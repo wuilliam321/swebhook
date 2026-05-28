@@ -2,9 +2,11 @@ FROM node:20-slim
 
 WORKDIR /app
 
-COPY package*.json ./
+RUN npm install -g pnpm
 
-RUN npm ci --omit=dev
+COPY package.json pnpm-lock.yaml ./
+
+RUN pnpm install --prod
 
 COPY index.js ./
 COPY src ./src

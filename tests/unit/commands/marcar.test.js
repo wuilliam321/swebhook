@@ -5,7 +5,9 @@ const { getEmployeesByRole } = require('../../../src/api/firebase');
 
 jest.mock('../../../src/queue');
 jest.mock('../../../src/api/telegram');
-jest.mock('../../../src/api/firebase');
+jest.mock('../../../src/api/firebase', () => ({
+    getEmployeesByRole: jest.fn()
+}));
 
 describe('Command: Marcar', () => {
     let context;
