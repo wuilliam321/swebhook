@@ -24,7 +24,8 @@ describe('Telegram API - parseProductLookup', () => {
         expect(result.message).toContain('🏪 Tienda: Centro');
         expect(result.message).toContain('📍 Ubicación: Pasillo 4, Estante B');
         expect(result.message).toContain('💰 Precio de Compra: $10');
-        expect(result.message).toContain('💵 Precio de Venta: 25Bs / $4');
+        expect(result.message).toContain('💵 Precio $ BCV: $25');
+        expect(result.message).toContain('💵 Precio $ Efectivo: $4');
         expect(result.message).toContain('✅ Estado: DISPONIBLE');
         expect(result.imageUrl).toBe('http://example.com/image.jpg');
     });
@@ -53,8 +54,8 @@ describe('Telegram API - parseProductLookup', () => {
 
         expect(result.message).toContain('📦 Disponibles por Tienda:');
         expect(result.message).toContain('🏪 Centro:');
-        expect(result.message).toContain('• V123-S-Rojo');
-        expect(result.message).toContain('• V123-XL-Verde');
+        expect(result.message).toContain('• V123--S');
+        expect(result.message).toContain('• V123--XL');
         expect(result.message).not.toContain('Norte:');
         expect(result.message).not.toContain('V123-L-Azul');
     });

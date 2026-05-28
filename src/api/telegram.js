@@ -25,6 +25,58 @@ async function sendTelegramMessage(chatId, message, token = TELEGRAM_TOKEN) {
         });
 }
 
+async function sendTelegramKeyboard(chatId, message, keyboard, token = TELEGRAM_TOKEN) {
+    if (MOCK_TELEGRAM) {
+        console.log(`[MOCK TELEGRAM] Sending keyboard to ${chatId} using token ${token}: ${message}`);
+        return { success: true };
+    }
+
+    const escapedOutput = escapeMarkdownV2(message);
+    return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        chat_id: chatId,
+        text: escapedOutput,
+        parse_mode: 'MarkdownV2',
+        reply_markup: {
+            keyboard: keyboard,
+            resize_keyboard: true,
+            one_time_keyboard: true
+        }
+    })
+        .then(() => {
+            console.log(`Mensaje con teclado "${message}" enviado con éxito`);
+            return { success: true };
+        })
+        .catch(error => {
+            console.error(`Error al enviar mensaje con teclado "${message}":`, error);
+            return { success: false, error };
+        });
+}
+
+async function removeTelegramKeyboard(chatId, message, token = TELEGRAM_TOKEN) {
+    if (MOCK_TELEGRAM) {
+        console.log(`[MOCK TELEGRAM] Removing keyboard for ${chatId} using token ${token}: ${message}`);
+        return { success: true };
+    }
+
+    const escapedOutput = escapeMarkdownV2(message);
+    return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        chat_id: chatId,
+        text: escapedOutput,
+        parse_mode: 'MarkdownV2',
+        reply_markup: {
+            remove_keyboard: true
+        }
+    })
+        .then(() => {
+            console.log(`Teclado removido en chat ${chatId}`);
+            return { success: true };
+        })
+        .catch(error => {
+            console.error(`Error al remover teclado en chat ${chatId}:`, error);
+            return { success: false, error };
+        });
+}
+
 async function sendOutfitPhoto(chatId, base64Image, caption, token = TELEGRAM_TOKEN) {
     if (MOCK_TELEGRAM) {
         console.log(`[MOCK TELEGRAM] Sending photo to ${chatId} using token ${token}. Caption: ${caption}`);
@@ -278,6 +330,8 @@ const sendFBMessage = async (to, text) => {
 
 module.exports = {
     sendTelegramMessage,
+    sendTelegramKeyboard,
+    removeTelegramKeyboard,
     sendOutfitPhoto,
     sendProductDetails,
     sendDepositoDetails,

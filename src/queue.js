@@ -2,6 +2,7 @@ const { TELEGRAM_TOKEN } = require('./config');
 const { callPagoMovilAPI, callCierreAPI, callCasheaAbonosAPI } = require('./api/pagoMovil');
 const { callSpendingAPI } = require('./api/spending');
 const { callSalesReportAPI, callOutfitGeneratorAPI, callProductLookupAPI, callDepositoLookupAPI } = require('./api/inventory');
+const { callAsistenciaAPI } = require('./api/asistencia');
 const { sendTelegramMessage, sendOutfitPhoto, sendProductDetails, sendDepositoDetails } = require('./api/telegram');
 const { buildOutfitSummary, normalizeBase64Image } = require('./outfit'); // Assuming moved to src/outfit.js
 
@@ -252,6 +253,19 @@ async function processCommandQueue() {
                 console.log(`Deposito lookup completed successfully for ${originalMessageText}`);
             } else {
                 await sendTelegramMessage(chatId, `❌ Error al consultar depósito: ${result.message}`, token);
+            }
+        }
+
+        if (jobType === 'asistencia') {
+            console.log('Processing asistencia job...');
+            const { nombre, tienda, accion } = currentJob;
+            const result = await callAsistenciaAPI(nombre, tienda, accion);
+
+            if (result.success) {
+                console.log(`Asistencia job for ${nombre} completed.`);
+                await sendTelegramMessage(chatId, `✅ ${result.message}`, token);
+            } else {
+                await sendTelegramMessage(chatId, `❌ Error registrando asistencia: ${result.message}`, token);
             }
         }
     } catch (errorOutcome) {

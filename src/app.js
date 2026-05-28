@@ -35,7 +35,8 @@ const commands = [
     require('./commands/report'),
     require('./commands/consultaCodigo'),
     require('./commands/deposito'),
-    require('./commands/outfit')
+    require('./commands/outfit'),
+    require('./commands/marcar')
 ];
 
 const app = express();
