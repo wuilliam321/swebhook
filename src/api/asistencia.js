@@ -6,10 +6,11 @@ const { PAGOMOVIL_API_URL, MOCK_PAGOMOVIL } = require('../config');
  * @param {string} nombre - Employee name
  * @param {string} tienda - Store location
  * @param {string} accion - Attendance action (e.g., Apertura, Cierre)
+ * @param {string} reminders - Comma-separated list of confirmed reminders (optional)
  */
-async function callAsistenciaAPI(nombre, tienda, accion) {
+async function callAsistenciaAPI(nombre, tienda, accion, reminders = '') {
     if (MOCK_PAGOMOVIL) {
-        console.log(`[MOCK ASISTENCIA] Registering attendance for ${nombre} at ${tienda}: ${accion}`);
+        console.log(`[MOCK ASISTENCIA] Registering attendance for ${nombre} at ${tienda}: ${accion} - Reminders: ${reminders}`);
         return { success: true, message: `Asistencia (mock) registrada para ${nombre}` };
     }
 
@@ -18,7 +19,7 @@ async function callAsistenciaAPI(nombre, tienda, accion) {
         return { success: false, message: "API URL not configured." };
     }
 
-    const requestBody = { nombre, tienda, accion };
+    const requestBody = { nombre, tienda, accion, reminders };
     console.log('Calling Asistencia API with body:', JSON.stringify(requestBody, null, 2));
 
     try {

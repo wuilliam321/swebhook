@@ -258,8 +258,8 @@ async function processCommandQueue() {
 
         if (jobType === 'asistencia') {
             console.log('Processing asistencia job...');
-            const { nombre, tienda, accion } = currentJob;
-            const result = await callAsistenciaAPI(nombre, tienda, accion);
+            const { nombre, tienda, accion, reminders } = currentJob;
+            const result = await callAsistenciaAPI(nombre, tienda, accion, reminders);
 
             if (result.success) {
                 console.log(`Asistencia job for ${nombre} completed.`);

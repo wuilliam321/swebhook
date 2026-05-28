@@ -169,6 +169,7 @@ describe('Command: Marcar', () => {
             tienda: 'Rodeo',
             accion: '🌙 Cierre',
             pendingReminders: ['Cierre punto?'], // Only one left
+            originalReminders: ['Cierre caja?', 'Cierre punto?'],
             botToken: 'token123' 
         };
         
@@ -178,7 +179,8 @@ describe('Command: Marcar', () => {
             jobType: 'asistencia',
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: '🌙 Cierre'
+            accion: '🌙 Cierre',
+            reminders: 'Cierre caja?, Cierre punto?'
         }));
         expect(context.chatStates[123]).toBeUndefined();
     });

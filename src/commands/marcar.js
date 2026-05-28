@@ -24,12 +24,19 @@ function chunkArray(array, size) {
 }
 
 async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
-    const { nombre, tienda, accion } = chatState;
+    const { nombre, tienda, accion, originalReminders } = chatState;
+    
+    // Join reminders into a comma-separated string, or leave empty if none
+    const remindersStr = originalReminders && originalReminders.length > 0 
+        ? originalReminders.join(', ') 
+        : '';
+
     const job = {
         chatId: chatId,
         nombre,
         tienda,
         accion,
+        reminders: remindersStr,
         jobType: 'asistencia',
         botToken: storedBotToken,
         originalMessageText: `/marcar ${nombre} ${tienda} ${accion}`
@@ -115,7 +122,9 @@ module.exports = {
             if (userCommand.includes("Cierre")) {
                 const reminders = await getReminders();
                 if (reminders && reminders.length > 0) {
-                    chatState.pendingReminders = reminders;
+                    // Make a copy for shifting, and keep the original for logging
+                    chatState.pendingReminders = [...reminders];
+                    chatState.originalReminders = [...reminders];
                     chatState.state = "WAITING_FOR_REMINDER_CONFIRMATION";
                     
                     const firstReminder = chatState.pendingReminders[0];

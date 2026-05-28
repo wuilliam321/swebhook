@@ -20,11 +20,11 @@ describe('Asistencia API', () => {
     test('callAsistenciaAPI should send correct request', async () => {
         axios.default.post.mockResolvedValue({ data: { message: 'Success' } });
         
-        const result = await callAsistenciaAPI('Ana', 'Rodeo', '☀️ Apertura');
+        const result = await callAsistenciaAPI('Ana', 'Rodeo', '☀️ Apertura', 'Cierre caja?');
         
         expect(axios.default.post).toHaveBeenCalledWith(
             'http://mock-api/asistencia',
-            { nombre: 'Ana', tienda: 'Rodeo', accion: '☀️ Apertura' },
+            { nombre: 'Ana', tienda: 'Rodeo', accion: '☀️ Apertura', reminders: 'Cierre caja?' },
             expect.any(Object)
         );
         expect(result).toEqual({ success: true, message: 'Success' });
