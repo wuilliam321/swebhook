@@ -1,0 +1,110 @@
+const { commandQueue, processCommandQueue, isJobDuplicate } = require('../queue');
+const { sendTelegramMessage } = require('../api/telegram');
+
+/**
+ * Command to record expenses (gastos).
+ * Handles initial command and subsequent amount/description input (including media).
+ */
+module.exports = {
+    /**
+     * Identifies if this command should handle the user input.
+     */
+    canHandle: (userCommand, chatState) => {
+        return userCommand === "/gasto" || (chatState && chatState.state === "WAITING_FOR_AMOUNT") || false;
+    },
+
+    /**
+     * Executes the command logic.
+     */
+    execute: async (context) => {
+        const { chatId, userCommand, botToken, chatStates, req } = context;
+
+        // --- Step 1: Initial Command ---
+        if (userCommand === "/gasto") {
+            chatStates[chatId] = {
+                state: "WAITING_FOR_AMOUNT",
+                botName: context.botName, // Need to ensure botName is in context if needed, but app.js has it
+                botToken: botToken
+            };
+            await sendTelegramMessage(chatId, "💰 ¿Cuánto gastaste y en qué?", botToken);
+            return;
+        }
+
+        // --- Step 2: Amount/Description Input (State: WAITING_FOR_AMOUNT) ---
+        const chatState = chatStates[chatId];
+        const storedBotToken = chatState.botToken || botToken;
+        const message = req.body.message;
+        const phone = message.from ? message.from.phone_number || message.from.id || "unknown" : "unknown";
+        
+        let spendingText = userCommand;
+        
+        // Use caption if text is empty (common in media messages)
+        if (!spendingText && message.caption) {
+            spendingText = message.caption;
+        }
+
+        let fileId = null;
+        let mediaType = null;
+
+        if (message.voice) {
+            fileId = message.voice.file_id;
+            mediaType = 'voice';
+        } else if (message.audio) {
+            fileId = message.audio.file_id;
+            mediaType = 'audio';
+        } else if (message.photo) {
+             // Take the largest photo
+            const largestPhoto = message.photo[message.photo.length - 1];
+            fileId = largestPhoto.file_id;
+            mediaType = 'photo';
+        }
+
+        // Handle Photo without Caption: Ask for text
+        if (mediaType === 'photo' && !spendingText) {
+             chatState.pendingFileId = fileId;
+             chatState.pendingMediaType = mediaType;
+             
+             await sendTelegramMessage(chatId, "📸 Foto recibida. ¿Cuánto gastaste y en qué? (Envía texto para completar)", storedBotToken);
+             return;
+        }
+
+        // Handle Text following a pending Photo
+        if (!fileId && spendingText && chatState.pendingFileId) {
+             fileId = chatState.pendingFileId;
+             mediaType = chatState.pendingMediaType;
+             // We will consume the pending file now
+        }
+
+        if (!spendingText && !fileId) {
+             await sendTelegramMessage(chatId, "❗ Por favor, envía texto, una nota de voz o una foto.", storedBotToken);
+             return;
+        }
+
+        const modifiedCommand = `${spendingText || ''} source:${phone}`;
+
+        const job = {
+            chatId: chatId,
+            spending: modifiedCommand,
+            originalMessageText: spendingText || '[Media]',
+            jobType: 'gasto',
+            botToken: storedBotToken,
+            fileId: fileId,
+            mediaType: mediaType
+        };
+
+        if (isJobDuplicate(job)) {
+            await sendTelegramMessage(chatId, `⏳ Ya se está procesando este gasto "${spendingText || '[Media]'}".`, storedBotToken);
+            return;
+        }
+
+        commandQueue.push(job);
+        delete chatStates[chatId]; 
+
+        const confirmationMsg = fileId 
+            ? `⏳ Gasto multimedia recibido. Procesando... ✨`
+            : `⏳ Gasto "${spendingText}" encolado. Te avisaré cuando esté listo. ✨`;
+
+        await sendTelegramMessage(chatId, confirmationMsg, storedBotToken);
+        processCommandQueue();
+    }
+};
