@@ -118,7 +118,7 @@ describe('Command: Marcar', () => {
     });
 
     test('Step 4: Cierre action should fetch reminders and prompt first one', async () => {
-        context.userCommand = '🌙 Cierre';
+        context.userCommand = '🌙 CIERRE'; // Testing case insensitivity
         context.chatStates[123] = { 
             state: 'WAITING_FOR_ASISTENCIA_ACTION', 
             nombre: 'Ana',
