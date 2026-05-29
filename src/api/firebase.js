@@ -77,12 +77,18 @@ async function getEmployeesByRole(role = 'employee') {
  */
 async function getReminders() {
     const database = initializeFirebase();
-    if (!database) return [];
+    if (!database) {
+        console.error('Firebase database not initialized.');
+        return [];
+    }
 
     try {
+        console.log('Fetching from Firebase: 7db-adm/reminders');
         const remindersRef = database.ref('7db-adm/reminders');
         const snapshot = await remindersRef.once('value');
         const data = snapshot.val();
+
+        console.log(`Raw reminders data from Firebase: ${JSON.stringify(data)}`);
 
         if (!data) return [];
 
@@ -93,6 +99,9 @@ async function getReminders() {
             const reminder = data[key];
             if (reminder && reminder.titulo) {
                 reminders.push(reminder.titulo);
+            } else if (typeof reminder === 'string') {
+                // Fallback if the reminder is just a string
+                reminders.push(reminder);
             }
         }
 

@@ -118,9 +118,13 @@ module.exports = {
         // --- Step 4: Action Selection ---
         if (chatState.state === "WAITING_FOR_ASISTENCIA_ACTION") {
             chatState.accion = userCommand;
+            console.log(`Action selected: "${userCommand}". Checking if it contains "Cierre"...`);
 
-            if (userCommand.includes("Cierre")) {
+            if (userCommand.toLowerCase().includes("cierre")) {
+                console.log('Cierre detected. Fetching reminders from Firebase...');
                 const reminders = await getReminders();
+                console.log(`Reminders fetched: ${JSON.stringify(reminders)}`);
+                
                 if (reminders && reminders.length > 0) {
                     // Make a copy for shifting, and keep the original for logging
                     chatState.pendingReminders = [...reminders];
@@ -128,8 +132,11 @@ module.exports = {
                     chatState.state = "WAITING_FOR_REMINDER_CONFIRMATION";
                     
                     const firstReminder = chatState.pendingReminders[0];
+                    console.log(`Starting reminder flow with: "${firstReminder}"`);
                     await sendTelegramKeyboard(chatId, `🔔 Recordatorio de Cierre:\n\n¿${firstReminder}?`, [["✅ Confirmado"]], storedBotToken);
                     return;
+                } else {
+                    console.log('No reminders found in Firebase or list is empty.');
                 }
             }
 
