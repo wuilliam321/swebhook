@@ -97,8 +97,8 @@ async function getReminders() {
         // data contains reminder keys directly under '7db-adm/reminders'
         for (const key in data) {
             const reminder = data[key];
-            if (reminder && reminder.titulo) {
-                reminders.push(reminder.titulo);
+            if (reminder && (reminder.titulo || reminder.title)) {
+                reminders.push(reminder.titulo || reminder.title);
             } else if (typeof reminder === 'string') {
                 // Fallback if the reminder is just a string
                 reminders.push(reminder);
