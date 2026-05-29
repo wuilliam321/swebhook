@@ -133,14 +133,14 @@ describe('Command: Marcar', () => {
         expect(context.chatStates[123].pendingReminders).toEqual(['Cierre caja?', 'Cierre punto?']);
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
-            expect.stringContaining('¿Cierre caja?'), 
-            [["✅ Confirmado"]], 
+            expect.stringContaining('Cierre caja?'), 
+            [["✅ Confirmo"]], 
             'token123'
         );
     });
 
     test('Step 5: Confirm reminder should show next reminder if available', async () => {
-        context.userCommand = '✅ Confirmado';
+        context.userCommand = '✅ Confirmo';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
             nombre: 'Ana',
@@ -155,14 +155,14 @@ describe('Command: Marcar', () => {
         expect(context.chatStates[123].pendingReminders).toEqual(['Cierre punto?']);
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
-            expect.stringContaining('¿Cierre punto?'), 
-            [["✅ Confirmado"]], 
+            expect.stringContaining('Cierre punto?'), 
+            [["✅ Confirmo"]], 
             'token123'
         );
     });
 
     test('Step 5: Confirm last reminder should enqueue job', async () => {
-        context.userCommand = '✅ Confirmado';
+        context.userCommand = '✅ Confirmo';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
             nombre: 'Ana',
@@ -180,7 +180,7 @@ describe('Command: Marcar', () => {
             nombre: 'Ana',
             tienda: 'Rodeo',
             accion: '🌙 Cierre',
-            reminders: 'Cierre caja?, Cierre punto?'
+            reminders: 'Cierre caja?, Si, confirmo | Cierre punto?, Si, confirmo'
         }));
         expect(context.chatStates[123]).toBeUndefined();
     });

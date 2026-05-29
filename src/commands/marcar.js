@@ -26,9 +26,9 @@ function chunkArray(array, size) {
 async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
     const { nombre, tienda, accion, originalReminders } = chatState;
     
-    // Join reminders into a comma-separated string, or leave empty if none
+    // Join reminders into a formatted string, or leave empty if none
     const remindersStr = originalReminders && originalReminders.length > 0 
-        ? originalReminders.join(', ') 
+        ? originalReminders.map(r => `${r}, Si, confirmo`).join(' | ') 
         : '';
 
     const job = {
@@ -133,7 +133,7 @@ module.exports = {
                     
                     const firstReminder = chatState.pendingReminders[0];
                     console.log(`Starting reminder flow with: "${firstReminder}"`);
-                    await sendTelegramKeyboard(chatId, `🔔 Recordatorio de Cierre:\n\n¿${firstReminder}?`, [["✅ Confirmado"]], storedBotToken);
+                    await sendTelegramKeyboard(chatId, `🔔 ${firstReminder}`, [["✅ Confirmo"]], storedBotToken);
                     return;
                 } else {
                     console.log('No reminders found in Firebase or list is empty.');
@@ -145,13 +145,13 @@ module.exports = {
 
         // --- Step 5: Reminder Confirmation ---
         if (chatState.state === "WAITING_FOR_REMINDER_CONFIRMATION") {
-            if (userCommand === "✅ Confirmado") {
+            if (userCommand === "✅ Confirmo") {
                 chatState.pendingReminders.shift(); // remove the confirmed one
                 
                 if (chatState.pendingReminders.length > 0) {
                     // Show next reminder
                     const nextReminder = chatState.pendingReminders[0];
-                    await sendTelegramKeyboard(chatId, `🔔 Recordatorio de Cierre:\n\n¿${nextReminder}?`, [["✅ Confirmado"]], storedBotToken);
+                    await sendTelegramKeyboard(chatId, `🔔 ${nextReminder}`, [["✅ Confirmo"]], storedBotToken);
                     return;
                 } else {
                     // All reminders confirmed, finish
@@ -160,7 +160,7 @@ module.exports = {
             } else {
                 // If they typed something else, resend the current reminder
                 const currentReminder = chatState.pendingReminders[0];
-                await sendTelegramKeyboard(chatId, `⚠️ Por favor confirma para poder continuar.\n\n¿${currentReminder}?`, [["✅ Confirmado"]], storedBotToken);
+                await sendTelegramKeyboard(chatId, `⚠️ Por favor confirma para poder continuar.\n\n🔔 ${currentReminder}`, [["✅ Confirmo"]], storedBotToken);
                 return;
             }
         }
