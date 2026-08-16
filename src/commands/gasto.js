@@ -1,6 +1,6 @@
 const { commandQueue, processCommandQueue, isJobDuplicate } = require('../queue');
-const { sendTelegramMessage } = require('../api/telegram');
-const { extractExpense, validateExpense, questionFor } = require('../expense');
+const { sendTelegramMessage, sendTelegramKeyboard } = require('../api/telegram');
+const { REASONS, ACCOUNTS, extractExpense, validateExpense, questionFor } = require('../expense');
 const { recordExpense } = require('../api/sheetsExpenses');
 
 const STORE_COMMANDS = { history: 'History', rodeo: 'Rodeo' };
@@ -8,6 +8,14 @@ const STORE_COMMANDS = { history: 'History', rodeo: 'Rodeo' };
 function parseStoreCommand(input) {
     const match = String(input || '').match(/^\/gastos?_(history|rodeo)(?:\s+([\s\S]+))?$/i);
     return match ? { store: STORE_COMMANDS[match[1].toLowerCase()], expenseText: match[2] || '' } : null;
+}
+
+function choiceKeyboard(options) {
+    return options.reduce((rows, option, index) => {
+        if (index % 2 === 0) rows.push([]);
+        rows[rows.length - 1].push(option);
+        return rows;
+    }, []);
 }
 
 async function handleStructuredExpense(context) {
@@ -30,7 +38,12 @@ async function handleStructuredExpense(context) {
         const missing = validateExpense(draft);
         if (missing.length) {
             chatStates[chatId] = { ...state, draft, state: 'WAITING_FOR_STRUCTURED_EXPENSE' };
-            await sendTelegramMessage(chatId, questionFor(missing[0]), state.botToken || botToken);
+            const choices = missing[0] === 'motivo' ? REASONS : missing[0] === 'cuenta' ? ACCOUNTS : null;
+            if (choices) {
+                await sendTelegramKeyboard(chatId, questionFor(missing[0]), choiceKeyboard(choices), state.botToken || botToken);
+            } else {
+                await sendTelegramMessage(chatId, questionFor(missing[0]), state.botToken || botToken);
+            }
             return true;
         }
         await recordExpense(draft);
@@ -48,6 +61,7 @@ async function handleStructuredExpense(context) {
  * Handles initial command and subsequent amount/description input (including media).
  */
 module.exports = {
+    choiceKeyboard,
     /**
      * Identifies if this command should handle the user input.
      */

@@ -41,6 +41,10 @@ describe('Command: Gasto', () => {
         expect(gastoCommand.canHandle('/gastos_rodeo 50$ publicidad', null)).toBe(true);
     });
 
+    test('groups quick selection options into two-column keyboard rows', () => {
+        expect(gastoCommand.choiceKeyboard(['A', 'B', 'C'])).toEqual([['A', 'B'], ['C']]);
+    });
+
     test('execute Step 1: should set state and ask for amount', async () => {
         await gastoCommand.execute(context);
 
