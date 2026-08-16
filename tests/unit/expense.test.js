@@ -1,6 +1,6 @@
 jest.mock('../../src/config', () => ({ OPENAI_API_KEY: 'key', OPENAI_EXPENSE_MODEL: 'test', EXPENSE_TIMEZONE: 'America/Caracas' }));
 const { validateExpense, questionFor } = require('../../src/expense');
-const { nextExpenseRow } = require('../../src/api/sheetsExpenses');
+const { nextExpenseRow, isDateCell } = require('../../src/api/sheetsExpenses');
 
 describe('expense validation', () => {
     test('keeps USD only in its normalized draft', () => {
@@ -14,7 +14,9 @@ describe('expense validation', () => {
         expect(questionFor('cuenta')).toContain('cuenta');
     });
     test('finds next row after last valid date', () => {
-        expect(nextExpenseRow(['Fecha', '', '2026-08-10', '2026-08-11', '', ''])).toBe(5);
-        expect(nextExpenseRow(['Fecha', '', 'formula'])).toBe(1);
+        const dateCell = date => ({ values: [{ userEnteredValue: { stringValue: date }, effectiveValue: { stringValue: date } }] });
+        expect(nextExpenseRow([dateCell('2026-08-10'), dateCell('2026-08-11'), { values: [{ userEnteredValue: { formulaValue: '=TODAY()' }, effectiveValue: { numberValue: 46245 }, effectiveFormat: { numberFormat: { type: 'DATE' } } }] }, {}])).toBe(3);
+        expect(isDateCell({ userEnteredValue: { formulaValue: '=TODAY()' }, effectiveValue: { numberValue: 46245 }, effectiveFormat: { numberFormat: { type: 'DATE' } } })).toBe(false);
+        expect(nextExpenseRow([])).toBe(1);
     });
 });
