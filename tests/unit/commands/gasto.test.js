@@ -45,6 +45,12 @@ describe('Command: Gasto', () => {
         expect(gastoCommand.choiceKeyboard(['A', 'B', 'C'])).toEqual([['A', 'B'], ['C']]);
     });
 
+    test('locks History when the History expense command is used', async () => {
+        context.userCommand = '/gastos_history';
+        await gastoCommand.execute(context);
+        expect(context.chatStates[123].store).toBe('History');
+    });
+
     test('execute Step 1: should set state and ask for amount', async () => {
         await gastoCommand.execute(context);
 
