@@ -10,16 +10,11 @@ function parseStoreCommand(input) {
     return match ? { store: STORE_COMMANDS[match[1].toLowerCase()], expenseText: match[2] || '' } : null;
 }
 
-function transactionId(message, chatId) {
-    return message.update_id ? `telegram:${message.update_id}` : `telegram:${chatId}:${message.message_id || 'unknown'}`;
-}
-
 async function handleStructuredExpense(context) {
     const { chatId, userCommand, botToken, chatStates, req } = context;
-    const message = req.body.message;
     const storeCommand = parseStoreCommand(userCommand);
     if (storeCommand) {
-        chatStates[chatId] = { state: 'WAITING_FOR_STRUCTURED_EXPENSE', store: storeCommand.store, botToken };
+        chatStates[chatId] = { state: 'WAITING_FOR_STRUCTURED_EXPENSE', store: 'Ambas', botToken };
         if (!storeCommand.expenseText) {
             await sendTelegramMessage(chatId, '💰 ¿Qué gasto deseas registrar?', botToken);
             return true;
@@ -38,7 +33,7 @@ async function handleStructuredExpense(context) {
             await sendTelegramMessage(chatId, questionFor(missing[0]), state.botToken || botToken);
             return true;
         }
-        await recordExpense(draft, transactionId(req.body, chatId));
+        await recordExpense(draft);
         delete chatStates[chatId];
         await sendTelegramMessage(chatId, '✅ Gasto registrado con éxito.', state.botToken || botToken);
     } catch (error) {

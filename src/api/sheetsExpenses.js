@@ -42,16 +42,13 @@ async function nextRow(token, spreadsheetId) {
     rows.forEach((row, index) => { if (isDateCell(row.values?.[0])) last = offset + index + 1; });
     return last + 1;
 }
-async function values(token, spreadsheetId, range) { return (await axios.get(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`, { headers: { Authorization: `Bearer ${token}` } })).data.values || []; }
-async function writeOne(token, spreadsheetId, draft, transactionId, store) {
-    const ids = await values(token, spreadsheetId, `${SHEET}!N:N`); if (ids.some(row => row[0] === transactionId)) return { duplicate: true };
+async function writeOne(token, spreadsheetId, draft, store) {
     const row = await nextRow(token, spreadsheetId);
     const record = [draft.date, draft.exchangeRate || '', draft.currency === 'USD' ? draft.amount : '', draft.currency === 'VES' ? draft.amount : '', draft.reason, draft.account, draft.description, store];
     const columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
     const data = record.flatMap((value, index) => value === '' ? [] : [{ range: `${SHEET}!${columns[index]}${row}`, values: [[value]] }]);
-    data.push({ range: `${SHEET}!N${row}`, values: [[transactionId]] });
     await axios.post(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, { valueInputOption: 'USER_ENTERED', data }, { headers: { Authorization: `Bearer ${token}` } });
     return { row };
 }
-async function recordExpense(draft, transactionId) { const token = await accessToken(); const targets = draft.store === 'Ambas' ? [[HISTORY_SPREADSHEET_ID, 'Ambas'], [RODEO_SPREADSHEET_ID, 'Ambas']] : [[draft.store === 'History' ? HISTORY_SPREADSHEET_ID : RODEO_SPREADSHEET_ID, draft.store]]; return Promise.all(targets.map(([id, store]) => writeOne(token, id, draft, transactionId, store))); }
+async function recordExpense(draft) { const token = await accessToken(); const targets = draft.store === 'Ambas' ? [[HISTORY_SPREADSHEET_ID, 'Ambas'], [RODEO_SPREADSHEET_ID, 'Ambas']] : [[draft.store === 'History' ? HISTORY_SPREADSHEET_ID : RODEO_SPREADSHEET_ID, draft.store]]; return Promise.all(targets.map(([id, store]) => writeOne(token, id, draft, store))); }
 module.exports = { isDateCell, nextExpenseRow, recordExpense };

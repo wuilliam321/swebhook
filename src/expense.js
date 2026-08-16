@@ -30,16 +30,17 @@ function questionFor(field) {
     return { monto: '¿Cuál fue el monto y la moneda?', moneda: '¿Fue en dólares o bolívares?', motivo: '¿Cuál fue el motivo del gasto?', cuenta: '¿Con qué cuenta pagaste?' }[field];
 }
 
-async function extractExpense(text, store, previousDraft) {
+async function extractExpense(text, defaultStore = 'Ambas', previousDraft) {
     if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY no está configurada');
-    const schema = { type: 'object', additionalProperties: false, required: ['date', 'amount', 'currency', 'exchangeRate', 'exchangeRateProvided', 'reason', 'account', 'description', 'reasonConfirmed'], properties: {
-        date: { type: ['string', 'null'] }, amount: { type: ['number', 'null'] }, currency: { type: ['string', 'null'], enum: ['USD', 'VES', null] }, exchangeRate: { type: ['number', 'null'] }, exchangeRateProvided: { type: 'boolean' }, reason: { type: ['string', 'null'], enum: [...REASONS, null] }, account: { type: ['string', 'null'], enum: [...ACCOUNTS, null] }, description: { type: ['string', 'null'] }, reasonConfirmed: { type: 'boolean' }
+    const schema = { type: 'object', additionalProperties: false, required: ['date', 'amount', 'currency', 'exchangeRate', 'exchangeRateProvided', 'reason', 'account', 'description', 'reasonConfirmed', 'store'], properties: {
+        date: { type: ['string', 'null'] }, amount: { type: ['number', 'null'] }, currency: { type: ['string', 'null'], enum: ['USD', 'VES', null] }, exchangeRate: { type: ['number', 'null'] }, exchangeRateProvided: { type: 'boolean' }, reason: { type: ['string', 'null'], enum: [...REASONS, null] }, account: { type: ['string', 'null'], enum: [...ACCOUNTS, null] }, description: { type: ['string', 'null'] }, reasonConfirmed: { type: 'boolean' }, store: { type: ['string', 'null'], enum: ['History', 'Rodeo', 'Ambas', null] }
     }};
-    const instructions = `Extrae un gasto venezolano. Fecha actual ${venezuelaDate()} (${EXPENSE_TIMEZONE}). Tienda fijada: ${store}. No inventes monto, moneda, cuenta ni categoría. Motivos: ${REASONS.join(', ')}. Cuentas: ${ACCOUNTS.join(', ')}. Usa null si no hay evidencia. Crea descripción corta. ${previousDraft ? `Datos previos: ${JSON.stringify(previousDraft)}` : ''}`;
+    const instructions = `Extrae un gasto venezolano. Fecha actual ${venezuelaDate()} (${EXPENSE_TIMEZONE}). Solo usa History o Rodeo si el usuario lo indica explícitamente; si dice ambas, usa Ambas; si no indica tienda usa null. No inventes monto, moneda, cuenta ni categoría. Motivos: ${REASONS.join(', ')}. Cuentas: ${ACCOUNTS.join(', ')}. Usa null si no hay evidencia. Crea descripción corta. ${previousDraft ? `Datos previos: ${JSON.stringify(previousDraft)}` : ''}`;
     const response = await axios.post('https://api.openai.com/v1/responses', { model: OPENAI_EXPENSE_MODEL, store: false, instructions, input: text, text: { format: { type: 'json_schema', name: 'expense_draft', strict: true, schema } } }, { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` }, timeout: 30000 });
     const output = response.data.output_text || response.data.output?.flatMap(item => item.content || []).find(item => item.type === 'output_text')?.text;
     if (!output) throw new Error('La IA no devolvió un gasto estructurado');
-    return { ...(previousDraft || {}), ...JSON.parse(output), store };
+    const extracted = JSON.parse(output);
+    return { ...(previousDraft || {}), ...extracted, store: extracted.store || previousDraft?.store || defaultStore };
 }
 
 module.exports = { REASONS, ACCOUNTS, venezuelaDate, validateExpense, questionFor, extractExpense };
