@@ -3,7 +3,12 @@ const { sendTelegramMessage } = require('../api/telegram');
 const { extractExpense, validateExpense, questionFor } = require('../expense');
 const { recordExpense } = require('../api/sheetsExpenses');
 
-const STORE_COMMANDS = { '/gastos_history': 'History', '/gastos_rodeo': 'Rodeo' };
+const STORE_COMMANDS = { history: 'History', rodeo: 'Rodeo' };
+
+function parseStoreCommand(input) {
+    const match = String(input || '').match(/^\/gastos?_(history|rodeo)(?:\s+([\s\S]+))?$/i);
+    return match ? { store: STORE_COMMANDS[match[1].toLowerCase()], expenseText: match[2] || '' } : null;
+}
 
 function transactionId(message, chatId) {
     return message.update_id ? `telegram:${message.update_id}` : `telegram:${chatId}:${message.message_id || 'unknown'}`;
@@ -12,10 +17,15 @@ function transactionId(message, chatId) {
 async function handleStructuredExpense(context) {
     const { chatId, userCommand, botToken, chatStates, req } = context;
     const message = req.body.message;
-    if (STORE_COMMANDS[userCommand]) {
-        chatStates[chatId] = { state: 'WAITING_FOR_STRUCTURED_EXPENSE', store: STORE_COMMANDS[userCommand], botToken };
-        await sendTelegramMessage(chatId, '💰 ¿Qué gasto deseas registrar?', botToken);
-        return true;
+    const storeCommand = parseStoreCommand(userCommand);
+    if (storeCommand) {
+        chatStates[chatId] = { state: 'WAITING_FOR_STRUCTURED_EXPENSE', store: storeCommand.store, botToken };
+        if (!storeCommand.expenseText) {
+            await sendTelegramMessage(chatId, '💰 ¿Qué gasto deseas registrar?', botToken);
+            return true;
+        }
+        context.userCommand = storeCommand.expenseText;
+        return handleStructuredExpense(context);
     }
     const state = chatStates[chatId];
     if (!state || state.state !== 'WAITING_FOR_STRUCTURED_EXPENSE') return false;
@@ -47,7 +57,7 @@ module.exports = {
      * Identifies if this command should handle the user input.
      */
     canHandle: (userCommand, chatState) => {
-        return userCommand === "/gasto" || Boolean(STORE_COMMANDS[userCommand]) || (chatState && (chatState.state === "WAITING_FOR_AMOUNT" || chatState.state === 'WAITING_FOR_STRUCTURED_EXPENSE')) || false;
+        return userCommand === "/gasto" || Boolean(parseStoreCommand(userCommand)) || (chatState && (chatState.state === "WAITING_FOR_AMOUNT" || chatState.state === 'WAITING_FOR_STRUCTURED_EXPENSE')) || false;
     },
 
     /**

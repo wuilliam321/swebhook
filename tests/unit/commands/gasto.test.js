@@ -36,6 +36,11 @@ describe('Command: Gasto', () => {
         expect(gastoCommand.canHandle('/other', null)).toBe(false);
     });
 
+    test('canHandle accepts store commands with inline expense text', () => {
+        expect(gastoCommand.canHandle('/gasto_history 9999 bolivares de envio', null)).toBe(true);
+        expect(gastoCommand.canHandle('/gastos_rodeo 50$ publicidad', null)).toBe(true);
+    });
+
     test('execute Step 1: should set state and ask for amount', async () => {
         await gastoCommand.execute(context);
 
