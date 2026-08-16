@@ -132,3 +132,5 @@ dist
 
 .zedservice-account-firebase.json
 service-account-firebase.json
+service-account-credentials.json
+service-account-sheets.json

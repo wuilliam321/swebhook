@@ -1,5 +1,42 @@
 const { commandQueue, processCommandQueue, isJobDuplicate } = require('../queue');
 const { sendTelegramMessage } = require('../api/telegram');
+const { extractExpense, validateExpense, questionFor } = require('../expense');
+const { recordExpense } = require('../api/sheetsExpenses');
+
+const STORE_COMMANDS = { '/gastos_history': 'History', '/gastos_rodeo': 'Rodeo' };
+
+function transactionId(message, chatId) {
+    return message.update_id ? `telegram:${message.update_id}` : `telegram:${chatId}:${message.message_id || 'unknown'}`;
+}
+
+async function handleStructuredExpense(context) {
+    const { chatId, userCommand, botToken, chatStates, req } = context;
+    const message = req.body.message;
+    if (STORE_COMMANDS[userCommand]) {
+        chatStates[chatId] = { state: 'WAITING_FOR_STRUCTURED_EXPENSE', store: STORE_COMMANDS[userCommand], botToken };
+        await sendTelegramMessage(chatId, '💰 ¿Qué gasto deseas registrar?', botToken);
+        return true;
+    }
+    const state = chatStates[chatId];
+    if (!state || state.state !== 'WAITING_FOR_STRUCTURED_EXPENSE') return false;
+    if (!userCommand) { await sendTelegramMessage(chatId, '❗ Envía el gasto como texto.', state.botToken || botToken); return true; }
+    try {
+        const draft = await extractExpense(userCommand, state.store, state.draft);
+        const missing = validateExpense(draft);
+        if (missing.length) {
+            chatStates[chatId] = { ...state, draft, state: 'WAITING_FOR_STRUCTURED_EXPENSE' };
+            await sendTelegramMessage(chatId, questionFor(missing[0]), state.botToken || botToken);
+            return true;
+        }
+        await recordExpense(draft, transactionId(req.body, chatId));
+        delete chatStates[chatId];
+        await sendTelegramMessage(chatId, '✅ Gasto registrado con éxito.', state.botToken || botToken);
+    } catch (error) {
+        console.error('Error registrando gasto estructurado:', error.response ? error.response.data : error.message);
+        await sendTelegramMessage(chatId, `❌ Error registrando gasto: ${error.message}`, state.botToken || botToken);
+    }
+    return true;
+}
 
 /**
  * Command to record expenses (gastos).
@@ -10,7 +47,7 @@ module.exports = {
      * Identifies if this command should handle the user input.
      */
     canHandle: (userCommand, chatState) => {
-        return userCommand === "/gasto" || (chatState && chatState.state === "WAITING_FOR_AMOUNT") || false;
+        return userCommand === "/gasto" || Boolean(STORE_COMMANDS[userCommand]) || (chatState && (chatState.state === "WAITING_FOR_AMOUNT" || chatState.state === 'WAITING_FOR_STRUCTURED_EXPENSE')) || false;
     },
 
     /**
@@ -18,6 +55,8 @@ module.exports = {
      */
     execute: async (context) => {
         const { chatId, userCommand, botToken, chatStates, req } = context;
+
+        if (await handleStructuredExpense(context)) return;
 
         // --- Step 1: Initial Command ---
         if (userCommand === "/gasto") {
