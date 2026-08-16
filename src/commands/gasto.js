@@ -1,6 +1,6 @@
 const { commandQueue, processCommandQueue, isJobDuplicate } = require('../queue');
 const { sendTelegramMessage, sendTelegramKeyboard } = require('../api/telegram');
-const { REASONS, ACCOUNTS, extractExpense, validateExpense, questionFor } = require('../expense');
+const { REASONS, ACCOUNTS, extractExpense, validateExpense, questionFor, mergeDraft } = require('../expense');
 const { recordExpense } = require('../api/sheetsExpenses');
 
 const STORE_COMMANDS = { history: 'History', rodeo: 'Rodeo' };
@@ -34,10 +34,14 @@ async function handleStructuredExpense(context) {
     if (!state || state.state !== 'WAITING_FOR_STRUCTURED_EXPENSE') return false;
     if (!userCommand) { await sendTelegramMessage(chatId, '❗ Envía el gasto como texto.', state.botToken || botToken); return true; }
     try {
-        const draft = await extractExpense(userCommand, state.store, state.draft);
+        const selectedReason = state.pendingField === 'motivo' && REASONS.includes(userCommand) ? userCommand : null;
+        const selectedAccount = state.pendingField === 'cuenta' && ACCOUNTS.includes(userCommand) ? userCommand : null;
+        const draft = selectedReason || selectedAccount
+            ? mergeDraft(state.draft, selectedReason ? { reason: selectedReason, reasonConfirmed: true } : { account: selectedAccount }, state.store)
+            : await extractExpense(userCommand, state.store, state.draft);
         const missing = validateExpense(draft);
         if (missing.length) {
-            chatStates[chatId] = { ...state, draft, state: 'WAITING_FOR_STRUCTURED_EXPENSE' };
+            chatStates[chatId] = { ...state, draft, pendingField: missing[0], state: 'WAITING_FOR_STRUCTURED_EXPENSE' };
             const choices = missing[0] === 'motivo' ? REASONS : missing[0] === 'cuenta' ? ACCOUNTS : null;
             if (choices) {
                 await sendTelegramKeyboard(chatId, questionFor(missing[0]), choiceKeyboard(choices), state.botToken || botToken);

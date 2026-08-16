@@ -1,5 +1,5 @@
 jest.mock('../../src/config', () => ({ OPENAI_API_KEY: 'key', OPENAI_EXPENSE_MODEL: 'test', EXPENSE_TIMEZONE: 'America/Caracas' }));
-const { validateExpense, questionFor } = require('../../src/expense');
+const { validateExpense, questionFor, inferAmountAndCurrency, mergeDraft } = require('../../src/expense');
 const { nextExpenseRow, isDateCell } = require('../../src/api/sheetsExpenses');
 
 describe('expense validation', () => {
@@ -12,6 +12,13 @@ describe('expense validation', () => {
         const draft = { date: '2026-08-16', amount: 3000, currency: 'VES', reason: 'Condominio', description: 'Condominio' };
         expect(validateExpense(draft)).toEqual(['cuenta']);
         expect(questionFor('cuenta')).toContain('cuenta');
+    });
+    test('detects bolivares and dollars without relying on AI', () => {
+        expect(inferAmountAndCurrency('1158,80 bolivares en flete')).toEqual({ amount: 1158.8, currency: 'VES' });
+        expect(inferAmountAndCurrency('Pagué $50 de internet')).toEqual({ amount: 50, currency: 'USD' });
+    });
+    test('keeps resolved fields when a follow-up extraction returns null', () => {
+        expect(mergeDraft({ amount: 50, currency: 'USD', reason: 'Marketing' }, { amount: null, currency: null, account: 'Binance' }, 'Ambas')).toEqual({ amount: 50, currency: 'USD', reason: 'Marketing', account: 'Binance', store: 'Ambas' });
     });
     test('finds next row after last valid date', () => {
         const dateCell = date => ({ values: [{ userEnteredValue: { stringValue: date }, effectiveValue: { stringValue: date } }] });

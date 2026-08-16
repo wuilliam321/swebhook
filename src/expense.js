@@ -30,6 +30,28 @@ function questionFor(field) {
     return { monto: '¿Cuál fue el monto y la moneda?', moneda: '¿Fue en dólares o bolívares?', motivo: '¿Cuál fue el motivo del gasto?', cuenta: '¿Con qué cuenta pagaste?' }[field];
 }
 
+function parseLocalizedAmount(value) {
+    const normalized = value.replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.');
+    const amount = Number(normalized);
+    return Number.isFinite(amount) ? amount : null;
+}
+
+function inferAmountAndCurrency(text) {
+    const raw = String(text || '');
+    const currency = /(?:\bbs\b|bol[ií]vares?)/i.test(raw) ? 'VES' : /(?:\busd\b|d[oó]lares?|\$)/i.test(raw) ? 'USD' : null;
+    const match = raw.match(/\d+(?:[.,]\d+)?/);
+    return { amount: match ? parseLocalizedAmount(match[0]) : null, currency };
+}
+
+function mergeDraft(previousDraft, extracted, defaultStore) {
+    const merged = { ...(previousDraft || {}) };
+    Object.entries(extracted || {}).forEach(([key, value]) => {
+        if (value !== null && value !== undefined && value !== '') merged[key] = value;
+    });
+    merged.store = extracted?.store || previousDraft?.store || defaultStore;
+    return merged;
+}
+
 async function extractExpense(text, defaultStore = 'Ambas', previousDraft) {
     if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY no está configurada');
     const schema = { type: 'object', additionalProperties: false, required: ['date', 'amount', 'currency', 'exchangeRate', 'exchangeRateProvided', 'reason', 'account', 'description', 'reasonConfirmed', 'store'], properties: {
@@ -40,7 +62,7 @@ async function extractExpense(text, defaultStore = 'Ambas', previousDraft) {
     const output = response.data.output_text || response.data.output?.flatMap(item => item.content || []).find(item => item.type === 'output_text')?.text;
     if (!output) throw new Error('La IA no devolvió un gasto estructurado');
     const extracted = JSON.parse(output);
-    return { ...(previousDraft || {}), ...extracted, store: extracted.store || previousDraft?.store || defaultStore };
+    return mergeDraft(previousDraft, { ...extracted, ...inferAmountAndCurrency(text) }, defaultStore);
 }
 
-module.exports = { REASONS, ACCOUNTS, venezuelaDate, validateExpense, questionFor, extractExpense };
+module.exports = { REASONS, ACCOUNTS, venezuelaDate, validateExpense, questionFor, inferAmountAndCurrency, mergeDraft, extractExpense };
