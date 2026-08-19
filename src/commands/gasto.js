@@ -22,7 +22,7 @@ async function handleStructuredExpense(context) {
     const { chatId, userCommand, botToken, chatStates, req } = context;
     const storeCommand = parseStoreCommand(userCommand);
     if (storeCommand) {
-        chatStates[chatId] = { state: 'WAITING_FOR_STRUCTURED_EXPENSE', store: storeCommand.store, botToken };
+        chatStates[chatId] = { state: 'WAITING_FOR_STRUCTURED_EXPENSE', store: 'Ambas', targetStore: storeCommand.store, botToken };
         if (!storeCommand.expenseText) {
             await sendTelegramMessage(chatId, '💰 ¿Qué gasto deseas registrar?', botToken);
             return true;
@@ -39,7 +39,7 @@ async function handleStructuredExpense(context) {
         const extractedDraft = selectedReason || selectedAccount
             ? mergeDraft(state.draft, selectedReason ? { reason: selectedReason, reasonConfirmed: true } : { account: selectedAccount }, state.store)
             : await extractExpense(userCommand, state.store, state.draft);
-        const draft = { ...extractedDraft, store: state.store };
+        const draft = extractedDraft;
         const missing = validateExpense(draft);
         if (missing.length) {
             chatStates[chatId] = { ...state, draft, pendingField: missing[0], state: 'WAITING_FOR_STRUCTURED_EXPENSE' };
@@ -51,7 +51,7 @@ async function handleStructuredExpense(context) {
             }
             return true;
         }
-        await recordExpense(draft);
+        await recordExpense(draft, state.targetStore);
         delete chatStates[chatId];
         await removeTelegramKeyboard(chatId, '✅ Gasto registrado con éxito.', state.botToken || botToken);
     } catch (error) {

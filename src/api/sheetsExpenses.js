@@ -50,5 +50,13 @@ async function writeOne(token, spreadsheetId, draft, store) {
     await axios.post(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, { valueInputOption: 'USER_ENTERED', data }, { headers: { Authorization: `Bearer ${token}` } });
     return { row };
 }
-async function recordExpense(draft) { const token = await accessToken(); const targets = draft.store === 'Ambas' ? [[HISTORY_SPREADSHEET_ID, 'Ambas'], [RODEO_SPREADSHEET_ID, 'Ambas']] : [[draft.store === 'History' ? HISTORY_SPREADSHEET_ID : RODEO_SPREADSHEET_ID, draft.store]]; return Promise.all(targets.map(([id, store]) => writeOne(token, id, draft, store))); }
+async function recordExpense(draft, targetStore) {
+    const token = await accessToken();
+    const targets = targetStore
+        ? [[targetStore === 'History' ? HISTORY_SPREADSHEET_ID : RODEO_SPREADSHEET_ID, draft.store]]
+        : draft.store === 'Ambas'
+            ? [[HISTORY_SPREADSHEET_ID, 'Ambas'], [RODEO_SPREADSHEET_ID, 'Ambas']]
+            : [[draft.store === 'History' ? HISTORY_SPREADSHEET_ID : RODEO_SPREADSHEET_ID, draft.store]];
+    return Promise.all(targets.map(([id, store]) => writeOne(token, id, draft, store)));
+}
 module.exports = { isDateCell, nextExpenseRow, recordExpense };
