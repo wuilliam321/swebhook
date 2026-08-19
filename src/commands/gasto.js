@@ -1,5 +1,5 @@
 const { commandQueue, processCommandQueue, isJobDuplicate } = require('../queue');
-const { sendTelegramMessage, sendTelegramKeyboard } = require('../api/telegram');
+const { sendTelegramMessage, sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
 const { REASONS, ACCOUNTS, extractExpense, validateExpense, questionFor, mergeDraft } = require('../expense');
 const { recordExpense } = require('../api/sheetsExpenses');
 
@@ -53,7 +53,7 @@ async function handleStructuredExpense(context) {
         }
         await recordExpense(draft);
         delete chatStates[chatId];
-        await sendTelegramMessage(chatId, '✅ Gasto registrado con éxito.', state.botToken || botToken);
+        await removeTelegramKeyboard(chatId, '✅ Gasto registrado con éxito.', state.botToken || botToken);
     } catch (error) {
         console.error('Error registrando gasto estructurado:', error.response ? error.response.data : error.message);
         await sendTelegramMessage(chatId, `❌ Error registrando gasto: ${error.message}`, state.botToken || botToken);
