@@ -53,7 +53,7 @@ beforeEach(() => {
         if (url.includes('/file/bot')) return { data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) };
         if (url.includes('Cuentas!E%3AE')) return { data: { values: [['Motivo'], ['Transporte'], ['Suministros']] } };
         if (url.includes('Cuentas!K%3AK')) return { data: { values: [['Cuenta egreso'], ['BS Pago Movil']] } };
-        if (url.includes('Reembolsos!H1')) return { data: {} };
+        if (url.includes('Reembolsos!K1')) return { data: {} };
         throw new Error(`Unexpected GET ${url}`);
     });
     axios.put.mockResolvedValue({ data: {} });
@@ -74,10 +74,10 @@ test('registra comprobante, datos extraídos y URL en Reembolsos; confirma al us
     expect(axios.get).toHaveBeenCalledWith(expect.stringContaining('/getFile'), { params: { file_id: 'large' } });
     expect(SftpClient.mock.results[0].value.connect).toHaveBeenCalledWith(expect.objectContaining({ passphrase: 'test-passphrase' }));
     expect(SftpClient.mock.results[0].value.put).toHaveBeenCalledWith(expect.any(Buffer), expect.stringMatching(/^\/srv\/images\/reembolsos\/.*\.jpg$/));
-    expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('Reembolsos!H1'), { values: [['Comprobante']] }, expect.any(Object));
+    expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('Reembolsos!K1'), { values: [['Comprobante']] }, expect.any(Object));
     const append = axios.post.mock.calls.find(([url]) => url.includes(':append'));
-    expect(append[0]).toContain('Reembolsos!A%3AH');
-    expect(append[1].values[0]).toEqual(['09/08/2026', '', '', 1234.5, 'Transporte', 'BS Pago Movil', 'Taxi a Rodeo, referencia 12345', expect.stringMatching(/^https:\/\/images\.example\.com\/reembolsos\/.*\.jpg$/)]);
+    expect(append[0]).toContain('Reembolsos!A%3AK');
+    expect(append[1].values[0]).toEqual(['09/08/2026', '', '', 1234.5, 'Transporte', 'BS Pago Movil', 'Taxi a Rodeo, referencia 12345', '', '', '', expect.stringMatching(/^https:\/\/images\.example\.com\/reembolsos\/.*\.jpg$/)]);
     expect(chatStates[chatId]).toBeUndefined();
     expect(removeTelegramKeyboard).toHaveBeenCalledWith(chatId, expect.stringContaining('a la brevedad posible'), 'telegram-token');
 });
