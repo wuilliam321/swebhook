@@ -25,6 +25,7 @@ let headersReadyUntil = 0;
 let headersRequest;
 let sheetIdCache;
 let sheetIdRequest;
+let reimbursementWrite = Promise.resolve();
 
 async function downloadPhoto(fileId, botToken) {
     const file = await axios.get(`https://api.telegram.org/bot${botToken}/getFile`, { params: { file_id: fileId } });
@@ -176,16 +177,39 @@ async function getSheetId(token) {
 }
 
 async function appendReimbursement(draft, imageUrl) {
+    const pending = reimbursementWrite.then(() => writeReimbursement(draft, imageUrl));
+    reimbursementWrite = pending.catch(() => {});
+    return pending;
+}
+
+async function writeReimbursement(draft, imageUrl) {
     const token = await accessToken();
     const headers = { Authorization: `Bearer ${token}` };
     await ensureHeaders(token);
     const sheetId = await getSheetId(token);
-    const values = [[draft.date, '', draft.currency === 'USD' ? draft.amount : '', draft.currency === 'VES' ? draft.amount : '', draft.reason, draft.account, draft.description, '', '', '', imageUrl, draft.employee]];
-    const cells = values[0].map(value => value === '' ? {} : {
-        userEnteredValue: typeof value === 'number' ? { numberValue: value } : { stringValue: value }
+    const response = await axios.get(`${sheetUrl}/values/${encodeURIComponent('Reembolsos!A2:C')}`, {
+        headers,
+        params: { valueRenderOption: 'FORMULA' }
     });
+    const rows = response.data.values || [];
+    const firstEmpty = rows.findIndex(row => !row[0]);
+    const rowIndex = firstEmpty < 0 ? rows.length + 1 : firstEmpty + 1;
+    const existingUsd = rows[rowIndex - 1]?.[2];
+    const columns = [
+        [0, draft.date],
+        ...(draft.currency === 'USD' && !existingUsd ? [[2, draft.amount]] : []),
+        ...(draft.currency === 'VES' ? [[3, draft.amount]] : []),
+        [4, draft.reason], [5, draft.account], [6, draft.description],
+        [10, imageUrl], [11, draft.employee]
+    ];
     await axios.post(`${sheetUrl}:batchUpdate`, {
-        requests: [{ appendCells: { sheetId, rows: [{ values: cells }], fields: 'userEnteredValue' } }]
+        requests: columns.map(([columnIndex, value]) => ({
+            updateCells: {
+                start: { sheetId, rowIndex, columnIndex },
+                rows: [{ values: [{ userEnteredValue: typeof value === 'number' ? { numberValue: value } : { stringValue: value } }] }],
+                fields: 'userEnteredValue'
+            }
+        }))
     }, { headers });
 }
 

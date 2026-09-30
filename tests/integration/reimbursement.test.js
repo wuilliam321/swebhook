@@ -34,6 +34,7 @@ const { sendTelegramMessage, sendTelegramKeyboard, removeTelegramKeyboard } = re
 const chatId = 725;
 const cacheDuration = 24 * 60 * 60 * 1000;
 let now = Date.now();
+let reimbursementRows;
 const telegramHandler = app._router.stack.find(layer => layer.route?.path === '/telegram').route.stack[0].handle;
 const sendUpdate = message => telegramHandler({ body: { message: { chat: { id: chatId, type: 'private' }, ...message } } }, {
     status() { return this; },
@@ -50,6 +51,7 @@ const waitUntil = async predicate => {
 beforeEach(() => {
     jest.clearAllMocks();
     now += cacheDuration + 1;
+    reimbursementRows = [['', 'helper', '=D2*2']];
     jest.spyOn(Date, 'now').mockImplementation(() => now);
     Object.keys(chatStates).forEach(id => delete chatStates[id]);
     axios.get.mockImplementation(async url => {
@@ -59,6 +61,7 @@ beforeEach(() => {
         if (url.includes('Cuentas!K%3AK')) return { data: { values: [['Cuenta egreso'], ['BS Pago Movil']] } };
         if (url.includes('Cuentas!M%3AM')) return { data: { values: [['Empleados'], ['Rosario'], ['Maryory']] } };
         if (url.includes('Reembolsos!K1') || url.includes('Reembolsos!L1')) return { data: {} };
+        if (url.includes('Reembolsos!A2%3AC')) return { data: { values: reimbursementRows } };
         if (url.endsWith('/spreadsheets/1xIlDWHmxH4T53UTbYcAs-I1pdTeKY7nDQNyE8bOKKnk')) return { data: { sheets: [{ properties: { title: 'Reembolsos', sheetId: 1459055439 } }] } };
         throw new Error(`Unexpected GET ${url}`);
     });
@@ -76,7 +79,12 @@ test('registra comprobante, datos extraídos y URL en Reembolsos; confirma al us
             if (++extractionCount === 1) return new Promise(resolve => { resolveExtraction = () => resolve(response); });
             return response;
         }
-        if (url.includes(':batchUpdate')) return { data: { replies: [{}] } };
+        if (url.includes(':batchUpdate')) {
+            const firstEmpty = reimbursementRows.findIndex(row => !row[0]);
+            const index = firstEmpty < 0 ? reimbursementRows.length : firstEmpty;
+            reimbursementRows[index] = ['09/08/2026', ...(reimbursementRows[index]?.slice(1) || [])];
+            return { data: { replies: [{}] } };
+        }
         throw new Error(`Unexpected POST ${url}`);
     });
 
@@ -100,13 +108,14 @@ test('registra comprobante, datos extraídos y URL en Reembolsos; confirma al us
     expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('Reembolsos!K1'), { values: [['Comprobante']] }, expect.any(Object));
     expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('Reembolsos!L1'), { values: [['Empleada(o)']] }, expect.any(Object));
     const append = axios.post.mock.calls.find(([url]) => url.includes(':batchUpdate'));
-    expect(append[1].requests[0].appendCells.sheetId).toBe(1459055439);
-    expect(append[1].requests[0].appendCells.rows[0].values).toEqual([
-        { userEnteredValue: { stringValue: '09/08/2026' } }, {}, {}, { userEnteredValue: { numberValue: 1234.5 } },
-        { userEnteredValue: { stringValue: 'Transporte' } }, { userEnteredValue: { stringValue: 'BS Pago Movil' } },
-        { userEnteredValue: { stringValue: 'Taxi a Rodeo, referencia 12345' } }, {}, {}, {},
-        { userEnteredValue: { stringValue: expect.stringMatching(/^https:\/\/images\.example\.com\/reembolsos\/.*\.jpg$/) } },
-        { userEnteredValue: { stringValue: 'Rosario' } }
+    expect(append[1].requests.map(({ updateCells }) => [updateCells.start, updateCells.rows[0].values[0].userEnteredValue])).toEqual([
+        [{ sheetId: 1459055439, rowIndex: 1, columnIndex: 0 }, { stringValue: '09/08/2026' }],
+        [{ sheetId: 1459055439, rowIndex: 1, columnIndex: 3 }, { numberValue: 1234.5 }],
+        [{ sheetId: 1459055439, rowIndex: 1, columnIndex: 4 }, { stringValue: 'Transporte' }],
+        [{ sheetId: 1459055439, rowIndex: 1, columnIndex: 5 }, { stringValue: 'BS Pago Movil' }],
+        [{ sheetId: 1459055439, rowIndex: 1, columnIndex: 6 }, { stringValue: 'Taxi a Rodeo, referencia 12345' }],
+        [{ sheetId: 1459055439, rowIndex: 1, columnIndex: 10 }, { stringValue: expect.stringMatching(/^https:\/\/images\.example\.com\/reembolsos\/.*\.jpg$/) }],
+        [{ sheetId: 1459055439, rowIndex: 1, columnIndex: 11 }, { stringValue: 'Rosario' }]
     ]);
     expect(chatStates[chatId]).toBeUndefined();
     expect(removeTelegramKeyboard).toHaveBeenCalledWith(chatId, 'Registrando solicitud.', 'telegram-token');
@@ -125,6 +134,8 @@ test('registra comprobante, datos extraídos y URL en Reembolsos; confirma al us
     expect(axios.get.mock.calls.filter(([url]) => url.includes('Reembolsos!K1') || url.includes('Reembolsos!L1')).length).toBe(4);
     expect(axios.get.mock.calls.filter(([url]) => url.endsWith('/spreadsheets/1xIlDWHmxH4T53UTbYcAs-I1pdTeKY7nDQNyE8bOKKnk')).length).toBe(2);
     expect(axios.post.mock.calls.filter(([url]) => url.includes(':batchUpdate')).length).toBe(3);
+    expect(axios.get.mock.calls.filter(([url]) => url.includes('Reembolsos!A2%3AC')).length).toBe(3);
+    expect(axios.post.mock.calls.filter(([url]) => url.includes(':batchUpdate')).map(([, body]) => body.requests[0].updateCells.start.rowIndex)).toEqual([1, 2, 3]);
 });
 
 test('pide datos ausentes y no confirma cuando Sheets falla', async () => {
@@ -147,6 +158,8 @@ test('pide datos ausentes y no confirma cuando Sheets falla', async () => {
     expect(sendTelegramKeyboard).toHaveBeenCalledWith(chatId, expect.stringContaining('motivo'), [['Transporte', 'Suministros']], 'telegram-token');
     await sendUpdate({ text: 'Suministros' });
 
+    const write = axios.post.mock.calls.find(([url]) => url.includes(':batchUpdate'));
+    expect(write[1].requests.map(({ updateCells }) => updateCells.start.columnIndex)).toEqual([0, 4, 5, 6, 10, 11]);
     expect(chatStates[chatId]).toBeUndefined();
     expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('No pude confirmar'), 'telegram-token');
     expect(removeTelegramKeyboard).toHaveBeenCalledTimes(1);
