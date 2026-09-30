@@ -136,29 +136,31 @@ describe('Command: Marcar', () => {
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
             expect.stringContaining('Cierre caja?'), 
-            [["✅ Confirmo"]], 
+            [["✅ Confirmo", "❌ No"]],
             'token123'
         );
     });
 
-    test('Step 5: Confirm reminder should show next reminder if available', async () => {
-        context.userCommand = '✅ Confirmo';
+    test('Step 5: No should be recorded and show next reminder', async () => {
+        context.userCommand = '❌ No';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
             nombre: 'Ana',
             tienda: 'Rodeo',
             accion: '🌙 Cierre',
             pendingReminders: ['Cierre caja?', 'Cierre punto?'],
+            reminderAnswers: [],
             botToken: 'token123' 
         };
         
         await marcarCommand.execute(context);
         
         expect(context.chatStates[123].pendingReminders).toEqual(['Cierre punto?']);
+        expect(context.chatStates[123].reminderAnswers).toEqual(['Cierre caja?, No, no confirmo']);
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
             expect.stringContaining('Cierre punto?'), 
-            [["✅ Confirmo"]], 
+            [["✅ Confirmo", "❌ No"]],
             'token123'
         );
     });
@@ -171,7 +173,7 @@ describe('Command: Marcar', () => {
             tienda: 'Rodeo',
             accion: '🌙 Cierre',
             pendingReminders: ['Cierre punto?'], // Only one left
-            originalReminders: ['Cierre caja?', 'Cierre punto?'],
+            reminderAnswers: ['Cierre caja?, No, no confirmo'],
             botToken: 'token123' 
         };
         
@@ -182,7 +184,7 @@ describe('Command: Marcar', () => {
             nombre: 'Ana',
             tienda: 'Rodeo',
             accion: '🌙 Cierre',
-            reminders: 'Cierre caja?, Si, confirmo | Cierre punto?, Si, confirmo'
+            reminders: 'Cierre caja?, No, no confirmo | Cierre punto?, Si, confirmo'
         }));
         expect(context.chatStates[123]).toBeUndefined();
     });

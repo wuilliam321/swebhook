@@ -12,6 +12,7 @@ const ACTIONS = [
     ["☀️ Apertura", "🍽️ Ir a comer"],
     ["🔙 Volver de comer", "🌙 Cierre"]
 ];
+const REMINDER_ANSWERS = [["✅ Confirmo", "❌ No"]];
 
 /**
  * Utility to chunk an array into rows for Telegram keyboard.
@@ -25,12 +26,8 @@ function chunkArray(array, size) {
 }
 
 async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
-    const { nombre, tienda, accion, originalReminders } = chatState;
-    
-    // Join reminders into a formatted string, or leave empty if none
-    const remindersStr = originalReminders && originalReminders.length > 0 
-        ? originalReminders.map(r => `${r}, Si, confirmo`).join(' | ') 
-        : '';
+    const { nombre, tienda, accion, reminderAnswers = [] } = chatState;
+    const remindersStr = reminderAnswers.join(' | ');
 
     const job = {
         chatId: chatId,
@@ -127,14 +124,13 @@ module.exports = {
                 console.log(`Reminders fetched: ${JSON.stringify(reminders)}`);
                 
                 if (reminders && reminders.length > 0) {
-                    // Make a copy for shifting, and keep the original for logging
                     chatState.pendingReminders = [...reminders];
-                    chatState.originalReminders = [...reminders];
+                    chatState.reminderAnswers = [];
                     chatState.state = "WAITING_FOR_REMINDER_CONFIRMATION";
                     
                     const firstReminder = chatState.pendingReminders[0];
                     console.log(`Starting reminder flow with: "${firstReminder}"`);
-                    await sendTelegramKeyboard(chatId, `🔔 ${firstReminder}`, [["✅ Confirmo"]], storedBotToken);
+                    await sendTelegramKeyboard(chatId, `🔔 ${firstReminder}`, REMINDER_ANSWERS, storedBotToken);
                     return;
                 } else {
                     console.log('No reminders found in Firebase or list is empty.');
@@ -146,13 +142,14 @@ module.exports = {
 
         // --- Step 5: Reminder Confirmation ---
         if (chatState.state === "WAITING_FOR_REMINDER_CONFIRMATION") {
-            if (userCommand === "✅ Confirmo") {
-                chatState.pendingReminders.shift(); // remove the confirmed one
+            if (userCommand === "✅ Confirmo" || userCommand === "❌ No") {
+                const reminder = chatState.pendingReminders.shift();
+                chatState.reminderAnswers.push(`${reminder}, ${userCommand === "✅ Confirmo" ? 'Si, confirmo' : 'No, no confirmo'}`);
                 
                 if (chatState.pendingReminders.length > 0) {
                     // Show next reminder
                     const nextReminder = chatState.pendingReminders[0];
-                    await sendTelegramKeyboard(chatId, `🔔 ${nextReminder}`, [["✅ Confirmo"]], storedBotToken);
+                    await sendTelegramKeyboard(chatId, `🔔 ${nextReminder}`, REMINDER_ANSWERS, storedBotToken);
                     return;
                 } else {
                     // All reminders confirmed, finish
@@ -161,7 +158,7 @@ module.exports = {
             } else {
                 // If they typed something else, resend the current reminder
                 const currentReminder = chatState.pendingReminders[0];
-                await sendTelegramKeyboard(chatId, `⚠️ Por favor confirma para poder continuar.\n\n🔔 ${currentReminder}`, [["✅ Confirmo"]], storedBotToken);
+                await sendTelegramKeyboard(chatId, `⚠️ Selecciona una respuesta para continuar.\n\n🔔 ${currentReminder}`, REMINDER_ANSWERS, storedBotToken);
                 return;
             }
         }
