@@ -4,6 +4,7 @@ process.env.GEMINI_API_KEY = 'gemini-key';
 process.env.SSH_HOST = 'images.example.com';
 process.env.SSH_USER = 'images';
 process.env.SSH_PRIVATE_KEY = 'test-key';
+process.env.SSH_PASSPHRASE = 'test-passphrase';
 process.env.SSH_DEST_PATH = '/srv/images';
 process.env.IMAGE_BASE_URL = 'https://images.example.com/';
 
@@ -71,6 +72,7 @@ test('registra comprobante, datos extraídos y URL en Reembolsos; confirma al us
     await waitUntil(() => removeTelegramKeyboard.mock.calls.length > 0);
 
     expect(axios.get).toHaveBeenCalledWith(expect.stringContaining('/getFile'), { params: { file_id: 'large' } });
+    expect(SftpClient.mock.results[0].value.connect).toHaveBeenCalledWith(expect.objectContaining({ passphrase: 'test-passphrase' }));
     expect(SftpClient.mock.results[0].value.put).toHaveBeenCalledWith(expect.any(Buffer), expect.stringMatching(/^\/srv\/images\/reembolsos\/.*\.jpg$/));
     expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('Reembolsos!H1'), { values: [['Comprobante']] }, expect.any(Object));
     const append = axios.post.mock.calls.find(([url]) => url.includes(':append'));

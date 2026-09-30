@@ -12,6 +12,7 @@ services:
     environment:
       - PAGOMOVIL_API_URL=http://pagomovil-api:5000
       - INVENTORY_API_URL=http://inventariodb-api:5001
+      - SSH_KEY_PATH=/app/7dbimages.pem
     volumes:
       - ./service-account-firebase.json:/app/service-account-firebase.json
       - ./service-account-credentials.json:/app/service-account-credentials.json:ro

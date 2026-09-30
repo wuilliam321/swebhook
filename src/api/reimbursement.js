@@ -12,6 +12,7 @@ const {
     SSH_USER,
     SSH_KEY_PATH,
     SSH_PRIVATE_KEY,
+    SSH_PASSPHRASE,
     SSH_DEST_PATH,
     IMAGE_BASE_URL
 } = require('../config');
@@ -106,7 +107,8 @@ async function uploadReceipt(image) {
         await sftp.connect({
             host: SSH_HOST,
             username: SSH_USER,
-            privateKey: SSH_PRIVATE_KEY || fs.readFileSync(path.resolve(SSH_KEY_PATH || '7dbimages.pem'))
+            privateKey: SSH_PRIVATE_KEY || fs.readFileSync(path.resolve(SSH_KEY_PATH || '7dbimages.pem')),
+            passphrase: SSH_PASSPHRASE
         });
         await sftp.mkdir(directory, true);
         await sftp.put(image, path.posix.join(directory, filename));

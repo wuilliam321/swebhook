@@ -33,6 +33,7 @@ SSH_USER=
 SSH_DEST_PATH=
 IMAGE_BASE_URL=
 SSH_KEY_PATH=./7dbimages.pem
+SSH_PASSPHRASE=
 EXPENSE_TIMEZONE=America/Caracas
 FIREBASE_SERVICE_ACCOUNT_PATH=
 MOCK_TELEGRAM=false
@@ -57,7 +58,7 @@ In Docker Compose, this webhook uses the external `7db-family` network and conne
 
 `/solicitar_reembolso` uses spreadsheet `1xIlDWHmxH4T53UTbYcAs-I1pdTeKY7nDQNyE8bOKKnk` by default; override with `REIMBURSEMENTS_SPREADSHEET_ID`. Share it with the Google service account. The command reads allowed motives from `Cuentas!E:E` and accounts from `Cuentas!K:K`, defaulting to `BS Pago Movil`. It appends date (`DD/MM/YYYY`), USD amount, VES amount, motive, account, description and receipt URL to `Reembolsos!A:H` (column B remains blank). It creates the `Comprobante` header in H1 if empty. The service account also needs edit access to the sheet.
 
-Receipt uploads follow the storage layout of [`../7db-images-admin`](../7db-images-admin): files go to `${SSH_DEST_PATH}/reembolsos/` and their public URLs use `${IMAGE_BASE_URL}/reembolsos/`. Set `SSH_HOST`, `SSH_USER`, `SSH_DEST_PATH`, `IMAGE_BASE_URL` and either `SSH_KEY_PATH` or `SSH_PRIVATE_KEY`. Docker Compose mounts `../7db-images-admin/7dbimages.pem` at `/app/7dbimages.pem`; set `SSH_KEY_PATH=/app/7dbimages.pem` there. Anyone with a receipt URL can view its image.
+Receipt uploads follow the storage layout of [`../7db-images-admin`](../7db-images-admin): files go to `${SSH_DEST_PATH}/reembolsos/` and their public URLs use `${IMAGE_BASE_URL}/reembolsos/`. Set `SSH_HOST`, `SSH_USER`, `SSH_DEST_PATH`, `IMAGE_BASE_URL` and either `SSH_KEY_PATH` or `SSH_PRIVATE_KEY`. Set `SSH_PASSPHRASE` when the key is encrypted. Docker Compose mounts `../7db-images-admin/7dbimages.pem` at `/app/7dbimages.pem`; set `SSH_KEY_PATH=/app/7dbimages.pem` there. Anyone with a receipt URL can view its image.
 
 WhatsApp uses Meta Graph API with `GRAPH_API_TOKEN`, `PHONE_ID` and `WEBHOOK_VERIFY_TOKEN`. Its `/webhook` handler also calls `POST /generate` at `GENERATOR_URL`; a matching service exists in [`../signed-url-generator`](../signed-url-generator). The separate `/chat` handler invokes a Python script at a hard-coded path outside this repository.
 
