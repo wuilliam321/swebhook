@@ -35,11 +35,21 @@ async function advance(chatId, state, chatStates) {
         await sendTelegramKeyboard(chatId, 'Selecciona el motivo del reembolso.', rows, botToken);
         return;
     }
+    if (!draft.employee) {
+        state.state = 'WAITING_REIMBURSEMENT_EMPLOYEE';
+        const rows = state.employees.reduce((result, employee, index) => {
+            if (index % 2 === 0) result.push([]);
+            result[result.length - 1].push(employee);
+            return result;
+        }, []);
+        await sendTelegramKeyboard(chatId, 'Selecciona la empleada(o) que registra el gasto.', rows, botToken);
+        return;
+    }
     state.state = processing;
     try {
         await appendReimbursement(draft, state.imageUrl);
         delete chatStates[chatId];
-        await removeTelegramKeyboard(chatId, 'Recibimos tu solicitud. Te haremos el reembolso a la brevedad posible.', botToken);
+        await sendTelegramMessage(chatId, 'Recibimos tu solicitud. Te haremos el reembolso a la brevedad posible.', botToken);
     } catch (error) {
         delete chatStates[chatId];
         console.error('Error guardando reembolso:', error.response?.data || error.message);
@@ -50,14 +60,15 @@ async function advance(chatId, state, chatStates) {
 async function processPhoto(chatId, fileId, caption, botToken, chatStates) {
     try {
         const image = await downloadPhoto(fileId, botToken);
-        const { reasons, accounts } = await getOptions();
+        const { reasons, accounts, employees } = await getOptions();
         if (!reasons.length) throw new Error('No hay motivos en Cuentas!E:E');
+        if (!employees.length) throw new Error('No hay empleadas en Cuentas!M:M');
         const account = canonical('BS Pago Movil', accounts);
         if (!account) throw new Error('BS Pago Movil no existe en Cuentas!K:K');
         const draft = await extractReceipt(image, caption, reasons);
         draft.account = account;
         const imageUrl = await uploadReceipt(image);
-        const state = { state: processing, draft, reasons, imageUrl, botToken };
+        const state = { state: processing, draft, reasons, employees, imageUrl, botToken };
         chatStates[chatId] = state;
         await advance(chatId, state, chatStates);
     } catch (error) {
@@ -116,6 +127,14 @@ module.exports = {
                 await sendTelegramMessage(chatId, 'Selecciona un motivo de la lista.', token);
                 return;
             }
+        } else if (current.state === 'WAITING_REIMBURSEMENT_EMPLOYEE') {
+            current.draft.employee = canonical(userCommand, current.employees);
+            if (!current.draft.employee) {
+                await sendTelegramMessage(chatId, 'Selecciona una empleada(o) de la lista.', token);
+                return;
+            }
+            current.state = processing;
+            await removeTelegramKeyboard(chatId, 'Registrando solicitud.', token);
         }
         await advance(chatId, current, chatStates);
     }

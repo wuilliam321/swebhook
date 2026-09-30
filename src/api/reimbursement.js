@@ -34,7 +34,7 @@ async function downloadPhoto(fileId, botToken) {
 
 async function getOptions() {
     const token = await accessToken();
-    const ranges = ['Cuentas!E:E', 'Cuentas!K:K'];
+    const ranges = ['Cuentas!E:E', 'Cuentas!K:K', 'Cuentas!M:M'];
     const requests = ranges.map(range => axios.get(`${sheetUrl}/values/${encodeURIComponent(range)}`, {
         headers: { Authorization: `Bearer ${token}` }
     }));
@@ -42,7 +42,8 @@ async function getOptions() {
     const values = responses.map(response => response.data.values?.flat().map(value => String(value).trim()).filter(Boolean) || []);
     return {
         reasons: values[0].filter(value => value.toLowerCase() !== 'motivo'),
-        accounts: values[1].filter(value => value.toLowerCase() !== 'cuenta egreso')
+        accounts: values[1].filter(value => value.toLowerCase() !== 'cuenta egreso'),
+        employees: values[2].filter(value => value.toLowerCase() !== 'empleados')
     };
 }
 
@@ -122,18 +123,20 @@ async function uploadReceipt(image) {
 async function appendReimbursement(draft, imageUrl) {
     const token = await accessToken();
     const headers = { Authorization: `Bearer ${token}` };
-    const headerUrl = `${sheetUrl}/values/${encodeURIComponent('Reembolsos!K1')}`;
-    const header = await axios.get(headerUrl, { headers });
-    const currentHeader = header.data.values?.[0]?.[0];
-    if (currentHeader && currentHeader !== 'Comprobante') throw new Error('Reembolsos!K1 ya contiene otro encabezado');
-    if (!currentHeader) {
-        await axios.put(headerUrl, { values: [['Comprobante']] }, {
-            headers,
-            params: { valueInputOption: 'RAW' }
-        });
+    for (const [cell, expected] of [['K1', 'Comprobante'], ['L1', 'Empleada(o)']]) {
+        const headerUrl = `${sheetUrl}/values/${encodeURIComponent(`Reembolsos!${cell}`)}`;
+        const header = await axios.get(headerUrl, { headers });
+        const currentHeader = header.data.values?.[0]?.[0];
+        if (currentHeader && currentHeader !== expected) throw new Error(`Reembolsos!${cell} ya contiene otro encabezado`);
+        if (!currentHeader) {
+            await axios.put(headerUrl, { values: [[expected]] }, {
+                headers,
+                params: { valueInputOption: 'RAW' }
+            });
+        }
     }
-    const values = [[draft.date, '', draft.currency === 'USD' ? draft.amount : '', draft.currency === 'VES' ? draft.amount : '', draft.reason, draft.account, draft.description, '', '', '', imageUrl]];
-    await axios.post(`${sheetUrl}/values/${encodeURIComponent('Reembolsos!A:K')}:append`, { values }, {
+    const values = [[draft.date, '', draft.currency === 'USD' ? draft.amount : '', draft.currency === 'VES' ? draft.amount : '', draft.reason, draft.account, draft.description, '', '', '', imageUrl, draft.employee]];
+    await axios.post(`${sheetUrl}/values/${encodeURIComponent('Reembolsos!A:L')}:append`, { values }, {
         headers,
         params: { valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS' }
     });

@@ -53,7 +53,8 @@ beforeEach(() => {
         if (url.includes('/file/bot')) return { data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) };
         if (url.includes('Cuentas!E%3AE')) return { data: { values: [['Motivo'], ['Transporte'], ['Suministros']] } };
         if (url.includes('Cuentas!K%3AK')) return { data: { values: [['Cuenta egreso'], ['BS Pago Movil']] } };
-        if (url.includes('Reembolsos!K1')) return { data: {} };
+        if (url.includes('Cuentas!M%3AM')) return { data: { values: [['Empleados'], ['Rosario'], ['Maryory']] } };
+        if (url.includes('Reembolsos!K1') || url.includes('Reembolsos!L1')) return { data: {} };
         throw new Error(`Unexpected GET ${url}`);
     });
     axios.put.mockResolvedValue({ data: {} });
@@ -69,17 +70,22 @@ test('registra comprobante, datos extraídos y URL en Reembolsos; confirma al us
     await sendUpdate({ text: '/solicitar_reembolso' });
     expect(chatStates[chatId].state).toBe('WAITING_REIMBURSEMENT_PHOTO');
     await sendUpdate({ photo: [{ file_id: 'small' }, { file_id: 'large' }] });
-    await waitUntil(() => removeTelegramKeyboard.mock.calls.length > 0);
+    await waitUntil(() => chatStates[chatId]?.state === 'WAITING_REIMBURSEMENT_EMPLOYEE');
+    expect(sendTelegramKeyboard).toHaveBeenCalledWith(chatId, expect.stringContaining('empleada(o)'), [['Rosario', 'Maryory']], 'telegram-token');
+    await sendUpdate({ text: 'Rosario' });
 
     expect(axios.get).toHaveBeenCalledWith(expect.stringContaining('/getFile'), { params: { file_id: 'large' } });
     expect(SftpClient.mock.results[0].value.connect).toHaveBeenCalledWith(expect.objectContaining({ passphrase: 'test-passphrase' }));
     expect(SftpClient.mock.results[0].value.put).toHaveBeenCalledWith(expect.any(Buffer), expect.stringMatching(/^\/srv\/images\/reembolsos\/.*\.jpg$/));
     expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('Reembolsos!K1'), { values: [['Comprobante']] }, expect.any(Object));
+    expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('Reembolsos!L1'), { values: [['Empleada(o)']] }, expect.any(Object));
     const append = axios.post.mock.calls.find(([url]) => url.includes(':append'));
-    expect(append[0]).toContain('Reembolsos!A%3AK');
-    expect(append[1].values[0]).toEqual(['09/08/2026', '', '', 1234.5, 'Transporte', 'BS Pago Movil', 'Taxi a Rodeo, referencia 12345', '', '', '', expect.stringMatching(/^https:\/\/images\.example\.com\/reembolsos\/.*\.jpg$/)]);
+    expect(append[0]).toContain('Reembolsos!A%3AL');
+    expect(append[1].values[0]).toEqual(['09/08/2026', '', '', 1234.5, 'Transporte', 'BS Pago Movil', 'Taxi a Rodeo, referencia 12345', '', '', '', expect.stringMatching(/^https:\/\/images\.example\.com\/reembolsos\/.*\.jpg$/), 'Rosario']);
     expect(chatStates[chatId]).toBeUndefined();
-    expect(removeTelegramKeyboard).toHaveBeenCalledWith(chatId, expect.stringContaining('a la brevedad posible'), 'telegram-token');
+    expect(removeTelegramKeyboard).toHaveBeenCalledWith(chatId, 'Registrando solicitud.', 'telegram-token');
+    expect(removeTelegramKeyboard.mock.invocationCallOrder[0]).toBeLessThan(axios.post.mock.invocationCallOrder.at(-1));
+    expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('a la brevedad posible'), 'telegram-token');
 });
 
 test('pide datos ausentes y no confirma cuando Sheets falla', async () => {
@@ -96,8 +102,14 @@ test('pide datos ausentes y no confirma cuando Sheets falla', async () => {
     expect(chatStates[chatId].state).toBe('WAITING_REIMBURSEMENT_REASON');
     expect(sendTelegramKeyboard).toHaveBeenCalledWith(chatId, expect.stringContaining('motivo'), [['Transporte', 'Suministros']], 'telegram-token');
     await sendUpdate({ text: 'Suministros' });
+    expect(chatStates[chatId].state).toBe('WAITING_REIMBURSEMENT_EMPLOYEE');
+    expect(sendTelegramKeyboard).toHaveBeenCalledWith(chatId, expect.stringContaining('empleada(o)'), [['Rosario', 'Maryory']], 'telegram-token');
+    await sendUpdate({ text: 'Desconocida' });
+    expect(chatStates[chatId].state).toBe('WAITING_REIMBURSEMENT_EMPLOYEE');
+    expect(removeTelegramKeyboard).not.toHaveBeenCalled();
+    await sendUpdate({ text: 'Maryory' });
 
     expect(chatStates[chatId]).toBeUndefined();
     expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('No pude confirmar'), 'telegram-token');
-    expect(removeTelegramKeyboard).not.toHaveBeenCalled();
+    expect(removeTelegramKeyboard).toHaveBeenCalledTimes(1);
 });
