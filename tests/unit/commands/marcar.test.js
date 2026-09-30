@@ -42,6 +42,8 @@ describe('Command: Marcar', () => {
         expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_EMPLOYEE_NAME' })).toBe(true);
         expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_STORE' })).toBe(true);
         expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_ASISTENCIA_ACTION' })).toBe(true);
+        expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_OPENING' })).toBe(true);
+        expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_CLOSING' })).toBe(true);
         expect(marcarCommand.canHandle('', { state: 'WAITING_FOR_REMINDER_CONFIRMATION' })).toBe(true);
         expect(marcarCommand.canHandle('/other', null)).toBe(false);
     });
@@ -94,13 +96,13 @@ describe('Command: Marcar', () => {
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
             expect.stringContaining('¿Qué acción vas a realizar?'), 
-            expect.any(Array), 
+            [['Entrada', 'Inicia de Descanso'], ['Fin de Descanso', 'Salida']],
             'token123'
         );
     });
 
-    test('Step 4: Non-Cierre action selected should enqueue job immediately', async () => {
-        context.userCommand = '☀️ Apertura';
+    test('Step 4: Descanso should enqueue job immediately', async () => {
+        context.userCommand = 'Inicia de Descanso';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_ASISTENCIA_ACTION', 
             nombre: 'Ana',
@@ -114,13 +116,14 @@ describe('Command: Marcar', () => {
             jobType: 'asistencia',
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: '☀️ Apertura'
+            accion: 'Inicia de Descanso',
+            reminders: ''
         }));
         expect(context.chatStates[123]).toBeUndefined();
     });
 
-    test('Step 4: Cierre action should fetch reminders and prompt first one', async () => {
-        context.userCommand = '🌙 CIERRE'; // Testing case insensitivity
+    test('Salida con cierre pide los recordatorios', async () => {
+        context.userCommand = 'Salida';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_ASISTENCIA_ACTION', 
             nombre: 'Ana',
@@ -129,9 +132,17 @@ describe('Command: Marcar', () => {
         };
         
         await marcarCommand.execute(context);
-        
+
         expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(getReminders).not.toHaveBeenCalled();
+        expect(context.chatStates[123].state).toBe('WAITING_FOR_CLOSING');
+        expect(sendTelegramKeyboard).toHaveBeenCalledWith(123, '¿Estás cerrando la tienda?', [['✅ Sí', '❌ No']], 'token123');
+
+        context.userCommand = '✅ Sí';
+        await marcarCommand.execute(context);
+
         expect(context.chatStates[123].state).toBe('WAITING_FOR_REMINDER_CONFIRMATION');
+        expect(context.chatStates[123].closingAnswer).toBe('Cierra: Sí');
         expect(context.chatStates[123].pendingReminders).toEqual(['Cierre caja?', 'Cierre punto?']);
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
@@ -141,13 +152,38 @@ describe('Command: Marcar', () => {
         );
     });
 
+    test('Entrada registra si abre sin consultar recordatorios', async () => {
+        context.userCommand = 'Entrada';
+        context.chatStates[123] = { state: 'WAITING_FOR_ASISTENCIA_ACTION', nombre: 'Ana', tienda: 'Rodeo', botToken: 'token123' };
+        await marcarCommand.execute(context);
+        expect(context.chatStates[123].state).toBe('WAITING_FOR_OPENING');
+        expect(sendTelegramKeyboard).toHaveBeenCalledWith(123, '¿Estás abriendo la tienda?', [['✅ Sí', '❌ No']], 'token123');
+
+        context.userCommand = '✅ Sí';
+        await marcarCommand.execute(context);
+        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({ accion: 'Entrada', reminders: 'Abre: Sí' }));
+        expect(getReminders).not.toHaveBeenCalled();
+    });
+
+    test('Salida sin cierre registra salida sin recordatorios', async () => {
+        context.userCommand = 'Salida';
+        context.chatStates[123] = { state: 'WAITING_FOR_ASISTENCIA_ACTION', nombre: 'Ana', tienda: 'Rodeo', botToken: 'token123' };
+        await marcarCommand.execute(context);
+
+        context.userCommand = '❌ No';
+        await marcarCommand.execute(context);
+        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({ accion: 'Salida', reminders: 'Cierra: No' }));
+        expect(getReminders).not.toHaveBeenCalled();
+    });
+
     test('Step 5: No should be recorded and show next reminder', async () => {
         context.userCommand = '❌ No';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: '🌙 Cierre',
+            accion: 'Salida',
+            closingAnswer: 'Cierra: Sí',
             pendingReminders: ['Cierre caja?', 'Cierre punto?'],
             reminderAnswers: [],
             botToken: 'token123' 
@@ -171,7 +207,8 @@ describe('Command: Marcar', () => {
             state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: '🌙 Cierre',
+            accion: 'Salida',
+            closingAnswer: 'Cierra: Sí',
             pendingReminders: ['Cierre punto?'], // Only one left
             reminderAnswers: ['Cierre caja?, No, no confirmo'],
             botToken: 'token123' 
@@ -183,8 +220,8 @@ describe('Command: Marcar', () => {
             jobType: 'asistencia',
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: '🌙 Cierre',
-            reminders: 'Cierre caja?, No, no confirmo | Cierre punto?, Si, confirmo'
+            accion: 'Salida',
+            reminders: 'Cierra: Sí | Cierre caja?, No, no confirmo | Cierre punto?, Si, confirmo'
         }));
         expect(context.chatStates[123]).toBeUndefined();
     });

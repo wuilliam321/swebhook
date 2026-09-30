@@ -9,9 +9,10 @@ const STORES = [
 ];
 
 const ACTIONS = [
-    ["☀️ Apertura", "🍽️ Ir a comer"],
-    ["🔙 Volver de comer", "🌙 Cierre"]
+    ["Entrada", "Inicia de Descanso"],
+    ["Fin de Descanso", "Salida"]
 ];
+const YES_NO_ANSWERS = [["✅ Sí", "❌ No"]];
 const REMINDER_ANSWERS = [["✅ Confirmo", "❌ No"]];
 
 /**
@@ -26,8 +27,8 @@ function chunkArray(array, size) {
 }
 
 async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
-    const { nombre, tienda, accion, reminderAnswers = [] } = chatState;
-    const remindersStr = reminderAnswers.join(' | ');
+    const { nombre, tienda, accion, openingAnswer, closingAnswer, reminderAnswers = [] } = chatState;
+    const remindersStr = [openingAnswer, closingAnswer, ...reminderAnswers].filter(Boolean).join(' | ');
 
     const job = {
         chatId: chatId,
@@ -49,7 +50,7 @@ async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
 
 /**
  * Command to handle employee attendance marking.
- * Flow: /marcar -> Select Name -> Select Store -> Select Action -> (If Cierre) Confirm Reminders
+ * Flow: /marcar -> Select Name -> Select Store -> Select Action -> Opening/Closing -> Reminders
  */
 module.exports = {
     /**
@@ -61,6 +62,8 @@ module.exports = {
                    "WAITING_FOR_EMPLOYEE_NAME", 
                    "WAITING_FOR_STORE", 
                    "WAITING_FOR_ASISTENCIA_ACTION",
+                   "WAITING_FOR_OPENING",
+                   "WAITING_FOR_CLOSING",
                    "WAITING_FOR_REMINDER_CONFIRMATION"
                ].includes(chatState.state)) || 
                false;
@@ -115,29 +118,45 @@ module.exports = {
 
         // --- Step 4: Action Selection ---
         if (chatState.state === "WAITING_FOR_ASISTENCIA_ACTION") {
-            chatState.accion = userCommand;
-            console.log(`Action selected: "${userCommand}". Checking if it contains "Cierre"...`);
-
-            if (userCommand.toLowerCase().includes("cierre")) {
-                console.log('Cierre detected. Fetching reminders from Firebase...');
-                const reminders = await getReminders();
-                console.log(`Reminders fetched: ${JSON.stringify(reminders)}`);
-                
-                if (reminders && reminders.length > 0) {
-                    chatState.pendingReminders = [...reminders];
-                    chatState.reminderAnswers = [];
-                    chatState.state = "WAITING_FOR_REMINDER_CONFIRMATION";
-                    
-                    const firstReminder = chatState.pendingReminders[0];
-                    console.log(`Starting reminder flow with: "${firstReminder}"`);
-                    await sendTelegramKeyboard(chatId, `🔔 ${firstReminder}`, REMINDER_ANSWERS, storedBotToken);
-                    return;
-                } else {
-                    console.log('No reminders found in Firebase or list is empty.');
-                }
+            if (!ACTIONS.flat().includes(userCommand)) {
+                await sendTelegramKeyboard(chatId, "Selecciona una acción de la lista.", ACTIONS, storedBotToken);
+                return;
             }
-
+            chatState.accion = userCommand;
+            if (userCommand === 'Entrada') {
+                chatState.state = 'WAITING_FOR_OPENING';
+                await sendTelegramKeyboard(chatId, '¿Estás abriendo la tienda?', YES_NO_ANSWERS, storedBotToken);
+                return;
+            }
+            if (userCommand === 'Salida') {
+                chatState.state = 'WAITING_FOR_CLOSING';
+                await sendTelegramKeyboard(chatId, '¿Estás cerrando la tienda?', YES_NO_ANSWERS, storedBotToken);
+                return;
+            }
             return await finishAsistencia(chatId, chatState, storedBotToken, chatStates);
+        }
+
+        if (chatState.state === 'WAITING_FOR_OPENING' || chatState.state === 'WAITING_FOR_CLOSING') {
+            const isOpening = chatState.state === 'WAITING_FOR_OPENING';
+            if (userCommand !== '✅ Sí' && userCommand !== '❌ No') {
+                await sendTelegramKeyboard(chatId, 'Selecciona Sí o No.', YES_NO_ANSWERS, storedBotToken);
+                return;
+            }
+            const answer = userCommand === '✅ Sí' ? 'Sí' : 'No';
+            if (isOpening) {
+                chatState.openingAnswer = `Abre: ${answer}`;
+                return await finishAsistencia(chatId, chatState, storedBotToken, chatStates);
+            }
+            chatState.closingAnswer = `Cierra: ${answer}`;
+            if (answer === 'No') return await finishAsistencia(chatId, chatState, storedBotToken, chatStates);
+
+            const reminders = await getReminders();
+            if (!reminders.length) return await finishAsistencia(chatId, chatState, storedBotToken, chatStates);
+            chatState.pendingReminders = [...reminders];
+            chatState.reminderAnswers = [];
+            chatState.state = 'WAITING_FOR_REMINDER_CONFIRMATION';
+            await sendTelegramKeyboard(chatId, `🔔 ${reminders[0]}`, REMINDER_ANSWERS, storedBotToken);
+            return;
         }
 
         // --- Step 5: Reminder Confirmation ---
