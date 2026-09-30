@@ -3,6 +3,9 @@ const path = require('path');
 const fs = require('fs');
 
 let db;
+let remindersCache;
+let remindersRequest;
+const cacheDuration = 24 * 60 * 60 * 1000;
 
 /**
  * Initializes the Firebase Admin SDK if not already initialized.
@@ -76,40 +79,45 @@ async function getEmployeesByRole(role = 'employee') {
  * @returns {Promise<string[]>} List of reminder titles
  */
 async function getReminders() {
-    const database = initializeFirebase();
-    if (!database) {
-        console.error('Firebase database not initialized.');
-        return [];
-    }
-
-    try {
-        console.log('Fetching from Firebase: 7db-adm/reminders');
-        const remindersRef = database.ref('7db-adm/reminders');
-        const snapshot = await remindersRef.once('value');
-        const data = snapshot.val();
-
-        console.log(`Raw reminders data from Firebase: ${JSON.stringify(data)}`);
-
-        if (!data) return [];
-
-        const reminders = [];
-        
-        // data contains reminder keys directly under '7db-adm/reminders'
-        for (const key in data) {
-            const reminder = data[key];
-            if (reminder && (reminder.titulo || reminder.title)) {
-                reminders.push(reminder.titulo || reminder.title);
-            } else if (typeof reminder === 'string') {
-                // Fallback if the reminder is just a string
-                reminders.push(reminder);
+    if (remindersCache && Date.now() < remindersCache.expiresAt) return remindersCache.value;
+    if (!remindersRequest) {
+        remindersRequest = (async () => {
+            const database = initializeFirebase();
+            if (!database) {
+                console.error('Firebase database not initialized.');
+                return [];
             }
-        }
 
-        return reminders;
-    } catch (error) {
-        console.error('Error fetching reminders from Firebase:', error.message);
-        return [];
+            try {
+                console.log('Fetching from Firebase: 7db-adm/reminders');
+                const remindersRef = database.ref('7db-adm/reminders');
+                const snapshot = await remindersRef.once('value');
+                const data = snapshot.val();
+
+                console.log(`Raw reminders data from Firebase: ${JSON.stringify(data)}`);
+
+                if (!data) return [];
+
+                const reminders = [];
+
+                for (const key in data) {
+                    const reminder = data[key];
+                    if (reminder && (reminder.titulo || reminder.title)) {
+                        reminders.push(reminder.titulo || reminder.title);
+                    } else if (typeof reminder === 'string') {
+                        reminders.push(reminder);
+                    }
+                }
+
+                remindersCache = { value: reminders, expiresAt: Date.now() + cacheDuration };
+                return reminders;
+            } catch (error) {
+                console.error('Error fetching reminders from Firebase:', error.message);
+                return [];
+            }
+        })().finally(() => { remindersRequest = null; });
     }
+    return remindersRequest;
 }
 
 module.exports = {
