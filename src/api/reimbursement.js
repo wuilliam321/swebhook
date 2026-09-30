@@ -21,6 +21,8 @@ const sheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${REIMBURSEMENTS
 const cacheDuration = 24 * 60 * 60 * 1000;
 let optionsCache;
 let optionsRequest;
+let employeesCache;
+let employeesRequest;
 let headersReadyUntil = 0;
 let headersRequest;
 let sheetIdCache;
@@ -45,22 +47,39 @@ async function getOptions() {
     if (!optionsRequest) {
         optionsRequest = (async () => {
             const token = await accessToken();
-            const ranges = ['Cuentas!E:E', 'Cuentas!K:K', 'Cuentas!M:M'];
+            const ranges = ['Cuentas!E:E', 'Cuentas!K:K'];
             const requests = ranges.map(range => axios.get(`${sheetUrl}/values/${encodeURIComponent(range)}`, {
                 headers: { Authorization: `Bearer ${token}` }
             }));
-            const responses = await Promise.all(requests);
+            const [responses, employees] = await Promise.all([Promise.all(requests), getEmployees(token)]);
             const values = responses.map(response => response.data.values?.flat().map(value => String(value).trim()).filter(Boolean) || []);
             const value = {
                 reasons: values[0].filter(item => item.toLowerCase() !== 'motivo'),
                 accounts: values[1].filter(item => item.toLowerCase() !== 'cuenta egreso'),
-                employees: values[2].filter(item => item.toLowerCase() !== 'empleados')
+                employees
             };
             optionsCache = { value, expiresAt: Date.now() + cacheDuration };
             return value;
         })().finally(() => { optionsRequest = null; });
     }
     return optionsRequest;
+}
+
+async function getEmployees(token) {
+    if (employeesCache && Date.now() < employeesCache.expiresAt) return employeesCache.value;
+    if (!employeesRequest) {
+        employeesRequest = (async () => {
+            const access = token || await accessToken();
+            const response = await axios.get(`${sheetUrl}/values/${encodeURIComponent('Cuentas!M:M')}`, {
+                headers: { Authorization: `Bearer ${access}` }
+            });
+            const value = (response.data.values || []).flat().map(item => String(item).trim())
+                .filter(item => item && item.toLowerCase() !== 'empleados');
+            employeesCache = { value, expiresAt: Date.now() + cacheDuration };
+            return value;
+        })().finally(() => { employeesRequest = null; });
+    }
+    return employeesRequest;
 }
 
 function normalizeDate(value) {
@@ -213,4 +232,4 @@ async function writeReimbursement(draft, imageUrl) {
     }, { headers });
 }
 
-module.exports = { downloadPhoto, getOptions, extractReceipt, uploadReceipt, appendReimbursement, normalizeDate, normalizeAmount, canonical };
+module.exports = { downloadPhoto, getOptions, getEmployees, extractReceipt, uploadReceipt, appendReimbursement, normalizeDate, normalizeAmount, canonical };

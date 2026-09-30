@@ -1,6 +1,7 @@
 const { commandQueue, processCommandQueue } = require('../queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
-const { getEmployeesByRole, getReminders } = require('../api/firebase');
+const { getReminders } = require('../api/firebase');
+const { getEmployees } = require('../api/reimbursement');
 
 const STORES = [
     ["Rodeo", "History"],
@@ -77,7 +78,7 @@ module.exports = {
 
         // --- Step 1: Initial Command ---
         if (userCommand === "/marcar") {
-            const employees = await getEmployeesByRole('employee');
+            const employees = await getEmployees();
             
             if (employees.length === 0) {
                 const { sendTelegramMessage } = require('../api/telegram');

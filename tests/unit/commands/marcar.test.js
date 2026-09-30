@@ -1,21 +1,22 @@
 const marcarCommand = require('../../../src/commands/marcar');
 const { commandQueue, processCommandQueue } = require('../../../src/queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../../../src/api/telegram');
-const { getEmployeesByRole, getReminders } = require('../../../src/api/firebase');
+const { getReminders } = require('../../../src/api/firebase');
+const { getEmployees } = require('../../../src/api/reimbursement');
 
 jest.mock('../../../src/queue');
 jest.mock('../../../src/api/telegram');
 jest.mock('../../../src/api/firebase', () => ({
-    getEmployeesByRole: jest.fn(),
     getReminders: jest.fn()
 }));
+jest.mock('../../../src/api/reimbursement', () => ({ getEmployees: jest.fn() }));
 
 describe('Command: Marcar', () => {
     let context;
 
     beforeEach(() => {
         jest.clearAllMocks();
-        getEmployeesByRole.mockResolvedValue(['Ana', 'Maria']);
+        getEmployees.mockResolvedValue(['Ana', 'Maria']);
         getReminders.mockResolvedValue(['Cierre caja?', 'Cierre punto?']);
         context = {
             chatId: 123,
@@ -56,9 +57,10 @@ describe('Command: Marcar', () => {
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
             expect.stringContaining('¿Quién eres?'), 
-            expect.any(Array), 
+            [['Ana', 'Maria']],
             'token123'
         );
+        expect(getEmployees).toHaveBeenCalledTimes(1);
     });
 
     test('Step 2: Name selected should update state and ask for store', async () => {
