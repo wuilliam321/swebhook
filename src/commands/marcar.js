@@ -8,10 +8,11 @@ const STORES = [
     ["Evento Externo"]
 ];
 
-const ACTIONS = [
-    ["Entrada", "Inicia de Descanso"],
-    ["Fin de Descanso", "Salida"]
-];
+const ENTRY = '☀️ Entrada';
+const BREAK_START = '🍽️ Inicia de Descanso';
+const BREAK_END = '🔙 Fin de Descanso';
+const EXIT = '🌙 Salida';
+const ACTIONS = [[ENTRY, BREAK_START], [BREAK_END, EXIT]];
 const YES_NO_ANSWERS = [["✅ Sí", "❌ No"]];
 const REMINDER_ANSWERS = [["✅ Confirmo", "❌ No"]];
 
@@ -123,12 +124,12 @@ module.exports = {
                 return;
             }
             chatState.accion = userCommand;
-            if (userCommand === 'Entrada') {
+            if (userCommand === ENTRY) {
                 chatState.state = 'WAITING_FOR_OPENING';
                 await sendTelegramKeyboard(chatId, '¿Estás abriendo la tienda?', YES_NO_ANSWERS, storedBotToken);
                 return;
             }
-            if (userCommand === 'Salida') {
+            if (userCommand === EXIT) {
                 chatState.state = 'WAITING_FOR_CLOSING';
                 await sendTelegramKeyboard(chatId, '¿Estás cerrando la tienda?', YES_NO_ANSWERS, storedBotToken);
                 return;

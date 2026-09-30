@@ -96,13 +96,13 @@ describe('Command: Marcar', () => {
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
             expect.stringContaining('¿Qué acción vas a realizar?'), 
-            [['Entrada', 'Inicia de Descanso'], ['Fin de Descanso', 'Salida']],
+            [['☀️ Entrada', '🍽️ Inicia de Descanso'], ['🔙 Fin de Descanso', '🌙 Salida']],
             'token123'
         );
     });
 
     test('Step 4: Descanso should enqueue job immediately', async () => {
-        context.userCommand = 'Inicia de Descanso';
+        context.userCommand = '🍽️ Inicia de Descanso';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_ASISTENCIA_ACTION', 
             nombre: 'Ana',
@@ -116,14 +116,14 @@ describe('Command: Marcar', () => {
             jobType: 'asistencia',
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: 'Inicia de Descanso',
+            accion: '🍽️ Inicia de Descanso',
             reminders: ''
         }));
         expect(context.chatStates[123]).toBeUndefined();
     });
 
     test('Salida con cierre pide los recordatorios', async () => {
-        context.userCommand = 'Salida';
+        context.userCommand = '🌙 Salida';
         context.chatStates[123] = { 
             state: 'WAITING_FOR_ASISTENCIA_ACTION', 
             nombre: 'Ana',
@@ -153,7 +153,7 @@ describe('Command: Marcar', () => {
     });
 
     test('Entrada registra si abre sin consultar recordatorios', async () => {
-        context.userCommand = 'Entrada';
+        context.userCommand = '☀️ Entrada';
         context.chatStates[123] = { state: 'WAITING_FOR_ASISTENCIA_ACTION', nombre: 'Ana', tienda: 'Rodeo', botToken: 'token123' };
         await marcarCommand.execute(context);
         expect(context.chatStates[123].state).toBe('WAITING_FOR_OPENING');
@@ -161,18 +161,18 @@ describe('Command: Marcar', () => {
 
         context.userCommand = '✅ Sí';
         await marcarCommand.execute(context);
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({ accion: 'Entrada', reminders: 'Abre: Sí' }));
+        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({ accion: '☀️ Entrada', reminders: 'Abre: Sí' }));
         expect(getReminders).not.toHaveBeenCalled();
     });
 
     test('Salida sin cierre registra salida sin recordatorios', async () => {
-        context.userCommand = 'Salida';
+        context.userCommand = '🌙 Salida';
         context.chatStates[123] = { state: 'WAITING_FOR_ASISTENCIA_ACTION', nombre: 'Ana', tienda: 'Rodeo', botToken: 'token123' };
         await marcarCommand.execute(context);
 
         context.userCommand = '❌ No';
         await marcarCommand.execute(context);
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({ accion: 'Salida', reminders: 'Cierra: No' }));
+        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({ accion: '🌙 Salida', reminders: 'Cierra: No' }));
         expect(getReminders).not.toHaveBeenCalled();
     });
 
@@ -182,7 +182,7 @@ describe('Command: Marcar', () => {
             state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: 'Salida',
+            accion: '🌙 Salida',
             closingAnswer: 'Cierra: Sí',
             pendingReminders: ['Cierre caja?', 'Cierre punto?'],
             reminderAnswers: [],
@@ -207,7 +207,7 @@ describe('Command: Marcar', () => {
             state: 'WAITING_FOR_REMINDER_CONFIRMATION', 
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: 'Salida',
+            accion: '🌙 Salida',
             closingAnswer: 'Cierra: Sí',
             pendingReminders: ['Cierre punto?'], // Only one left
             reminderAnswers: ['Cierre caja?, No, no confirmo'],
@@ -220,7 +220,7 @@ describe('Command: Marcar', () => {
             jobType: 'asistencia',
             nombre: 'Ana',
             tienda: 'Rodeo',
-            accion: 'Salida',
+            accion: '🌙 Salida',
             reminders: 'Cierra: Sí | Cierre caja?, No, no confirmo | Cierre punto?, Si, confirmo'
         }));
         expect(context.chatStates[123]).toBeUndefined();
