@@ -15,6 +15,17 @@ function amountAndCurrency(text) {
 
 async function advance(chatId, state, chatStates) {
     const { draft, botToken } = state;
+    if (!draft.employee) {
+        state.state = 'WAITING_REIMBURSEMENT_EMPLOYEE';
+        const rows = state.employees.reduce((result, employee, index) => {
+            if (index % 2 === 0) result.push([]);
+            result[result.length - 1].push(employee);
+            return result;
+        }, []);
+        await sendTelegramKeyboard(chatId, 'Selecciona la empleada(o) que registra el gasto.', rows, botToken);
+        return;
+    }
+    if (state.extractionPending || !state.employeeReady) return;
     if (!draft.date) {
         state.state = 'WAITING_REIMBURSEMENT_DATE';
         await sendTelegramMessage(chatId, '¿Qué fecha tiene el pago? Responde DD/MM/YYYY.', botToken);
@@ -35,16 +46,6 @@ async function advance(chatId, state, chatStates) {
         await sendTelegramKeyboard(chatId, 'Selecciona el motivo del reembolso.', rows, botToken);
         return;
     }
-    if (!draft.employee) {
-        state.state = 'WAITING_REIMBURSEMENT_EMPLOYEE';
-        const rows = state.employees.reduce((result, employee, index) => {
-            if (index % 2 === 0) result.push([]);
-            result[result.length - 1].push(employee);
-            return result;
-        }, []);
-        await sendTelegramKeyboard(chatId, 'Selecciona la empleada(o) que registra el gasto.', rows, botToken);
-        return;
-    }
     state.state = processing;
     try {
         await appendReimbursement(draft, state.imageUrl);
@@ -58,6 +59,7 @@ async function advance(chatId, state, chatStates) {
 }
 
 async function processPhoto(chatId, fileId, caption, botToken, chatStates) {
+    let state;
     try {
         const image = await downloadPhoto(fileId, botToken);
         const { reasons, accounts, employees } = await getOptions();
@@ -65,16 +67,25 @@ async function processPhoto(chatId, fileId, caption, botToken, chatStates) {
         if (!employees.length) throw new Error('No hay empleadas en Cuentas!M:M');
         const account = canonical('BS Pago Movil', accounts);
         if (!account) throw new Error('BS Pago Movil no existe en Cuentas!K:K');
-        const draft = await extractReceipt(image, caption, reasons);
-        draft.account = account;
         const imageUrl = await uploadReceipt(image);
-        const state = { state: processing, draft, reasons, employees, imageUrl, botToken };
+        state = { state: processing, draft: { account }, reasons, employees, imageUrl, botToken, extractionPending: true, employeeReady: false };
         chatStates[chatId] = state;
         await advance(chatId, state, chatStates);
+        const draft = await extractReceipt(image, caption, reasons);
+        if (chatStates[chatId] !== state) return;
+        Object.assign(state.draft, draft);
+        state.extractionPending = false;
+        if (state.employeeReady) await advance(chatId, state, chatStates);
     } catch (error) {
+        if (state && chatStates[chatId] !== state) return;
         chatStates[chatId] = { state: waitingPhoto, botToken };
         console.error('Error procesando reembolso:', error.response?.data || error.message);
-        await sendTelegramMessage(chatId, `No pude procesar el comprobante: ${error.message}. Envía otra foto.`, botToken);
+        const message = `No pude procesar el comprobante: ${error.message}. Envía otra foto.`;
+        if (state?.state === 'WAITING_REIMBURSEMENT_EMPLOYEE') {
+            await removeTelegramKeyboard(chatId, message, botToken);
+        } else {
+            await sendTelegramMessage(chatId, message, botToken);
+        }
     }
 }
 
@@ -135,6 +146,8 @@ module.exports = {
             }
             current.state = processing;
             await removeTelegramKeyboard(chatId, 'Registrando solicitud.', token);
+            if (chatStates[chatId] !== current) return;
+            current.employeeReady = true;
         }
         await advance(chatId, current, chatStates);
     }

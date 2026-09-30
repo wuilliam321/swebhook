@@ -18,6 +18,13 @@ const {
 } = require('../config');
 
 const sheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${REIMBURSEMENTS_SPREADSHEET_ID}`;
+const cacheDuration = 24 * 60 * 60 * 1000;
+let optionsCache;
+let optionsRequest;
+let headersReadyUntil = 0;
+let headersRequest;
+let sheetIdCache;
+let sheetIdRequest;
 
 async function downloadPhoto(fileId, botToken) {
     const file = await axios.get(`https://api.telegram.org/bot${botToken}/getFile`, { params: { file_id: fileId } });
@@ -33,18 +40,26 @@ async function downloadPhoto(fileId, botToken) {
 }
 
 async function getOptions() {
-    const token = await accessToken();
-    const ranges = ['Cuentas!E:E', 'Cuentas!K:K', 'Cuentas!M:M'];
-    const requests = ranges.map(range => axios.get(`${sheetUrl}/values/${encodeURIComponent(range)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-    }));
-    const responses = await Promise.all(requests);
-    const values = responses.map(response => response.data.values?.flat().map(value => String(value).trim()).filter(Boolean) || []);
-    return {
-        reasons: values[0].filter(value => value.toLowerCase() !== 'motivo'),
-        accounts: values[1].filter(value => value.toLowerCase() !== 'cuenta egreso'),
-        employees: values[2].filter(value => value.toLowerCase() !== 'empleados')
-    };
+    if (optionsCache && Date.now() < optionsCache.expiresAt) return optionsCache.value;
+    if (!optionsRequest) {
+        optionsRequest = (async () => {
+            const token = await accessToken();
+            const ranges = ['Cuentas!E:E', 'Cuentas!K:K', 'Cuentas!M:M'];
+            const requests = ranges.map(range => axios.get(`${sheetUrl}/values/${encodeURIComponent(range)}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            }));
+            const responses = await Promise.all(requests);
+            const values = responses.map(response => response.data.values?.flat().map(value => String(value).trim()).filter(Boolean) || []);
+            const value = {
+                reasons: values[0].filter(item => item.toLowerCase() !== 'motivo'),
+                accounts: values[1].filter(item => item.toLowerCase() !== 'cuenta egreso'),
+                employees: values[2].filter(item => item.toLowerCase() !== 'empleados')
+            };
+            optionsCache = { value, expiresAt: Date.now() + cacheDuration };
+            return value;
+        })().finally(() => { optionsRequest = null; });
+    }
+    return optionsRequest;
 }
 
 function normalizeDate(value) {
@@ -120,26 +135,58 @@ async function uploadReceipt(image) {
     return new URL(`reembolsos/${filename}`, baseUrl).toString();
 }
 
+async function ensureHeaders(token) {
+    if (Date.now() < headersReadyUntil) return;
+    if (!headersRequest) {
+        headersRequest = (async () => {
+            const headers = { Authorization: `Bearer ${token}` };
+            for (const [cell, expected] of [['K1', 'Comprobante'], ['L1', 'Empleada(o)']]) {
+                const headerUrl = `${sheetUrl}/values/${encodeURIComponent(`Reembolsos!${cell}`)}`;
+                const header = await axios.get(headerUrl, { headers });
+                const currentHeader = header.data.values?.[0]?.[0];
+                if (currentHeader && currentHeader !== expected) throw new Error(`Reembolsos!${cell} ya contiene otro encabezado`);
+                if (!currentHeader) {
+                    await axios.put(headerUrl, { values: [[expected]] }, {
+                        headers,
+                        params: { valueInputOption: 'RAW' }
+                    });
+                }
+            }
+            headersReadyUntil = Date.now() + cacheDuration;
+        })().finally(() => { headersRequest = null; });
+    }
+    await headersRequest;
+}
+
+async function getSheetId(token) {
+    if (sheetIdCache && Date.now() < sheetIdCache.expiresAt) return sheetIdCache.value;
+    if (!sheetIdRequest) {
+        sheetIdRequest = (async () => {
+            const response = await axios.get(sheetUrl, {
+                headers: { Authorization: `Bearer ${token}` },
+                params: { fields: 'sheets(properties(sheetId,title))' }
+            });
+            const sheetId = response.data.sheets?.find(sheet => sheet.properties?.title === 'Reembolsos')?.properties?.sheetId;
+            if (sheetId === undefined) throw new Error('No existe la pestaña Reembolsos');
+            sheetIdCache = { value: sheetId, expiresAt: Date.now() + cacheDuration };
+            return sheetId;
+        })().finally(() => { sheetIdRequest = null; });
+    }
+    return sheetIdRequest;
+}
+
 async function appendReimbursement(draft, imageUrl) {
     const token = await accessToken();
     const headers = { Authorization: `Bearer ${token}` };
-    for (const [cell, expected] of [['K1', 'Comprobante'], ['L1', 'Empleada(o)']]) {
-        const headerUrl = `${sheetUrl}/values/${encodeURIComponent(`Reembolsos!${cell}`)}`;
-        const header = await axios.get(headerUrl, { headers });
-        const currentHeader = header.data.values?.[0]?.[0];
-        if (currentHeader && currentHeader !== expected) throw new Error(`Reembolsos!${cell} ya contiene otro encabezado`);
-        if (!currentHeader) {
-            await axios.put(headerUrl, { values: [[expected]] }, {
-                headers,
-                params: { valueInputOption: 'RAW' }
-            });
-        }
-    }
+    await ensureHeaders(token);
+    const sheetId = await getSheetId(token);
     const values = [[draft.date, '', draft.currency === 'USD' ? draft.amount : '', draft.currency === 'VES' ? draft.amount : '', draft.reason, draft.account, draft.description, '', '', '', imageUrl, draft.employee]];
-    await axios.post(`${sheetUrl}/values/${encodeURIComponent('Reembolsos!A:L')}:append`, { values }, {
-        headers,
-        params: { valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS' }
+    const cells = values[0].map(value => value === '' ? {} : {
+        userEnteredValue: typeof value === 'number' ? { numberValue: value } : { stringValue: value }
     });
+    await axios.post(`${sheetUrl}:batchUpdate`, {
+        requests: [{ appendCells: { sheetId, rows: [{ values: cells }], fields: 'userEnteredValue' } }]
+    }, { headers });
 }
 
 module.exports = { downloadPhoto, getOptions, extractReceipt, uploadReceipt, appendReimbursement, normalizeDate, normalizeAmount, canonical };
