@@ -20,8 +20,46 @@ PORT=8000
 DEBUG=false
 GENERATOR_URL=http://192.168.1.26:8001
 TELEGRAM_TOKEN=
+TELEGRAM_TOKEN_SEPTIMODIABOUTIQUE_BOT=
+PAGOMOVIL_API_URL=http://localhost:5000
+INVENTORY_API_URL=http://localhost:5001
+OPENAI_API_KEY=
+OPENAI_EXPENSE_MODEL=gpt-4.1-mini
+GOOGLE_SHEETS_SERVICE_ACCOUNT_FILE=
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
+SSH_HOST=
+SSH_USER=
+SSH_DEST_PATH=
+IMAGE_BASE_URL=
+SSH_KEY_PATH=./7dbimages.pem
+EXPENSE_TIMEZONE=America/Caracas
+FIREBASE_SERVICE_ACCOUNT_PATH=
 MOCK_TELEGRAM=false
 ```
+
+`TELEGRAM_TOKEN` is the default bot token. Additional bots use `TELEGRAM_TOKEN_<BOT_NAME>`; the code expects `TELEGRAM_TOKEN_SEPTIMODIABOUTIQUE_BOT` for the boutique bot. `OPENAI_EXPENSE_MODEL` and `EXPENSE_TIMEZONE` have defaults in `src/config.js`. `HISTORY_SPREADSHEET_ID` and `RODEO_SPREADSHEET_ID` are optional; omit them to use the defaults in `src/config.js` (do not leave them empty). Firebase accepts `FIREBASE_SERVICE_ACCOUNT` (service account JSON) instead of `FIREBASE_SERVICE_ACCOUNT_PATH`; without either, it looks for `service-account-firebase.json` in the repository root. Keep tokens and service account files out of version control.
+
+## Telegram integrations
+
+The `/telegram` webhook receives updates. Replies and photos use the Telegram Bot API (`api.telegram.org`). Commands also depend on these systems:
+
+| System | Repository / configuration | Telegram commands and API calls |
+| --- | --- | --- |
+| Financial backend | [`../7db-family-financial`](../7db-family-financial), `PAGOMOVIL_API_URL` | `/pagomovil_*` calls `POST /pagomovil`; `/cierre_*` calls `POST /cierre`; `/cashea_abonos` calls `POST /bnc`; `/gasto` calls `POST /spending`; `/marcar` calls `POST /asistencia`. |
+| Inventory backend | [`../7db-inventariodb`](../7db-inventariodb), `INVENTORY_API_URL` | `/consulta_codigo` calls `POST /consulta_producto`; `/deposito` calls `POST /deposito`; `/report` calls `POST /reporte_ventas`; `/outfit` calls `POST /outfit`. |
+| OpenAI Responses API | `OPENAI_API_KEY`, optional `OPENAI_EXPENSE_MODEL` | `/gasto_history` and `/gasto_rodeo` extract structured expenses through `POST https://api.openai.com/v1/responses`. |
+| Google Sheets API | `GOOGLE_SHEETS_SERVICE_ACCOUNT_FILE`, optional `HISTORY_SPREADSHEET_ID` and `RODEO_SPREADSHEET_ID` | `/gasto_history` and `/gasto_rodeo` write to the `Registro de gastos` sheet after authenticating with a Google service account. |
+| Firebase Realtime Database | `FIREBASE_SERVICE_ACCOUNT` or `FIREBASE_SERVICE_ACCOUNT_PATH` | `/marcar` reads employees from `7db-adm/users` and reminders from `7db-adm/reminders`. |
+| Gemini, Google Sheets and image storage | `GEMINI_API_KEY`, `GOOGLE_SHEETS_SERVICE_ACCOUNT_FILE`, `SSH_*`, `IMAGE_BASE_URL` | `/solicitar_reembolso` extracts payment details from a Telegram photo, uploads the receipt and writes a reimbursement row. |
+
+In Docker Compose, this webhook uses the external `7db-family` network and connects to `pagomovil-api:5000` and `inventariodb-api:5001`; start the services from their sibling repositories separately. The Compose file mounts `service-account-firebase.json` and `service-account-credentials.json` from this repository. Set `GOOGLE_SHEETS_SERVICE_ACCOUNT_FILE` to the path of the latter inside the container if using it for structured expenses. Local URLs in the example above apply only when those APIs run on the host.
+
+`/solicitar_reembolso` uses spreadsheet `1xIlDWHmxH4T53UTbYcAs-I1pdTeKY7nDQNyE8bOKKnk` by default; override with `REIMBURSEMENTS_SPREADSHEET_ID`. Share it with the Google service account. The command reads allowed motives from `Cuentas!E:E` and accounts from `Cuentas!K:K`, defaulting to `BS Pago Movil`. It appends date (`DD/MM/YYYY`), USD amount, VES amount, motive, account, description and receipt URL to `Reembolsos!A:H` (column B remains blank). It creates the `Comprobante` header in H1 if empty. The service account also needs edit access to the sheet.
+
+Receipt uploads follow the storage layout of [`../7db-images-admin`](../7db-images-admin): files go to `${SSH_DEST_PATH}/reembolsos/` and their public URLs use `${IMAGE_BASE_URL}/reembolsos/`. Set `SSH_HOST`, `SSH_USER`, `SSH_DEST_PATH`, `IMAGE_BASE_URL` and either `SSH_KEY_PATH` or `SSH_PRIVATE_KEY`. Docker Compose mounts `../7db-images-admin/7dbimages.pem` at `/app/7dbimages.pem`; set `SSH_KEY_PATH=/app/7dbimages.pem` there. Anyone with a receipt URL can view its image.
+
+WhatsApp uses Meta Graph API with `GRAPH_API_TOKEN`, `PHONE_ID` and `WEBHOOK_VERIFY_TOKEN`. Its `/webhook` handler also calls `POST /generate` at `GENERATOR_URL`; a matching service exists in [`../signed-url-generator`](../signed-url-generator). The separate `/chat` handler invokes a Python script at a hard-coded path outside this repository.
 
 ## Project Structure
 - `index.js`: Entry point of the application.
@@ -58,6 +96,8 @@ MOCK_TELEGRAM=false
 - `/pagomovil_wuilliam` - Check Wuilliam's PagoMóvil transactions
 
 - `/pagomovil_gilza` - Check Gilza's PagoMóvil transactions
+
+- `/solicitar_reembolso` - Request a reimbursement: attach a payment receipt photo, then supply any missing date, amount or motive. The bot confirms after saving the sheet row.
 
 ### Telegram cURL Examples
 
@@ -253,6 +293,10 @@ curl --location 'https://api.telegram.org/bot<TOKEN>/setMyCommands' \
         {
             "command": "consulta_codigo_bot",
             "description": "Consultar codigo"
+        },
+        {
+            "command": "solicitar_reembolso",
+            "description": "Solicitar reembolso con comprobante"
         }
     ],
     "scope": {

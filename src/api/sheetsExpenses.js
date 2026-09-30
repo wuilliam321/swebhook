@@ -59,4 +59,4 @@ async function recordExpense(draft, targetStore) {
             : [[draft.store === 'History' ? HISTORY_SPREADSHEET_ID : RODEO_SPREADSHEET_ID, draft.store]];
     return Promise.all(targets.map(([id, store]) => writeOne(token, id, draft, store)));
 }
-module.exports = { isDateCell, nextExpenseRow, recordExpense };
+module.exports = { isDateCell, nextExpenseRow, recordExpense, accessToken };

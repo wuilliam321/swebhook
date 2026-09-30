@@ -15,6 +15,7 @@ services:
     volumes:
       - ./service-account-firebase.json:/app/service-account-firebase.json
       - ./service-account-credentials.json:/app/service-account-credentials.json:ro
+      - ../7db-images-admin/7dbimages.pem:/app/7dbimages.pem:ro
     networks:
       - 7db-family
 
