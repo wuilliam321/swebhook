@@ -14,7 +14,7 @@ services:
       - INVENTORY_API_URL=http://inventariodb-api:5001
       - SSH_KEY_PATH=/app/7dbimages.pem
     volumes:
-      - ./service-account-firebase.json:/app/service-account-firebase.json
+      - ./service-account-firebase.json:/app/service-account-firebase.json:ro
       - ./service-account-credentials.json:/app/service-account-credentials.json:ro
       - ../7db-images-admin/7dbimages.pem:/app/7dbimages.pem:ro
     networks:

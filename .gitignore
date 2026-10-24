@@ -134,3 +134,11 @@ dist
 service-account-firebase.json
 service-account-credentials.json
 service-account-sheets.json
+.env.*
+!.env.example
+!.env.default
+*.pem
+*.key
+service-account*.json
+*credentials*.json
+*adminsdk*.json
