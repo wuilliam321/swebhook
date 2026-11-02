@@ -270,7 +270,7 @@ async function processCommandQueue() {
 
             if (result.success) {
                 console.log(`Asistencia job for ${nombre} completed.`);
-                await sendTelegramMessage(chatId, `✅ ${result.message}`, token);
+                await sendTelegramMessage(chatId, currentJob.attendanceSummary || `✅ ${result.message}`, token);
             } else {
                 await sendTelegramMessage(chatId, `❌ Error registrando asistencia: ${result.message}`, token);
             }

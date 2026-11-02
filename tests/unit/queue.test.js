@@ -1,9 +1,11 @@
 const { isJobDuplicate, commandQueue, processCommandQueue, hasPendingPagoMovilJob, hasPendingCierreJob } = require('../../src/queue');
 const { callSpendingAPI } = require('../../src/api/spending');
+const { callAsistenciaAPI } = require('../../src/api/asistencia');
 const { sendTelegramMessage } = require('../../src/api/telegram');
 const { callCierreAPI, callPagoMovilAPI } = require('../../src/api/pagoMovil');
 
 jest.mock('../../src/api/spending');
+jest.mock('../../src/api/asistencia');
 jest.mock('../../src/api/telegram');
 jest.mock('../../src/api/pagoMovil');
 jest.mock('../../src/api/inventory');
@@ -34,6 +36,18 @@ describe('Unit Tests: Queue Processing and Duplicate Detection', () => {
         expect(callCierreAPI).toHaveBeenCalledWith('wuilliam', undefined);
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Cierre de Caja'), expect.any(String));
         expect(commandQueue.length).toBe(0);
+    });
+
+    test.each([true, false])('attendance summary is sent only after successful storage (success=%s)', async success => {
+        const attendanceSummary = '✅ Salida registrada\nMaryory · History\nCierre: Sí\nConfirmó los 7 recordatorios.';
+        commandQueue.push({ chatId: 123, jobType: 'asistencia', nombre: 'Maryory', tienda: 'History',
+            accion: '🌙 Salida', reminders: 'Cierra: Sí', attendanceSummary });
+        callAsistenciaAPI.mockResolvedValue({ success, message: success ? 'Registrada' : 'API Error' });
+        await processCommandQueue();
+        expect(callAsistenciaAPI).toHaveBeenCalledWith('Maryory', 'History', '🌙 Salida', 'Cierra: Sí');
+        expect(sendTelegramMessage).toHaveBeenCalledWith(123,
+            success ? attendanceSummary : '❌ Error registrando asistencia: API Error', expect.any(String));
+        if (!success) expect(sendTelegramMessage).not.toHaveBeenCalledWith(123, attendanceSummary, expect.any(String));
     });
 
     test('should process gasto job successfully', async () => {

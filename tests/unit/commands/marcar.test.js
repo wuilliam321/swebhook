@@ -94,7 +94,7 @@ describe('Command: Marcar', () => {
         expect(context.chatStates[123].tienda).toBe('Rodeo');
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(
             123, 
-            expect.stringContaining('¿Qué acción vas a realizar?'), 
+            expect.stringContaining('¿Qué vas a registrar?'),
             [['☀️ Entrada', '🍽️ Inicia de Descanso'], ['🔙 Fin de Descanso', '🌙 Salida']],
             'token123'
         );
@@ -119,6 +119,41 @@ describe('Command: Marcar', () => {
             reminders: ''
         }));
         expect(context.chatStates[123]).toBeUndefined();
+    });
+
+    test.each([
+        ['☀️ Entrada', 'WAITING_FOR_OPENING', '✅ Sí', '✅ Entrada registrada\nAna · Rodeo\nApertura: Sí'],
+        ['🌙 Salida', 'WAITING_FOR_CLOSING', '❌ No', '✅ Salida registrada\nAna · Rodeo\nCierre: No'],
+        ['🍽️ Inicia de Descanso', 'WAITING_FOR_ASISTENCIA_ACTION', '🍽️ Inicia de Descanso', '✅ Inicio de descanso registrado\nAna · Rodeo'],
+        ['🔙 Fin de Descanso', 'WAITING_FOR_ASISTENCIA_ACTION', '🔙 Fin de Descanso', '✅ Fin de descanso registrado\nAna · Rodeo']
+    ])('resumen concreto para %s', async (accion, state, answer, expected) => {
+        context.userCommand = answer;
+        context.chatStates[123] = { state, accion, nombre: 'Ana', tienda: 'Rodeo', botToken: 'token123' };
+        await marcarCommand.execute(context);
+        const { attendanceSummary } = enqueueJob.mock.calls[0][0];
+        expect(attendanceSummary).toContain(expected);
+        expect(attendanceSummary).not.toContain('recordatorio');
+        expect(attendanceSummary).toMatch(/\d{2}\/\d{2}\/\d{4}.*\d{2}:\d{2} \(Venezuela\)$/);
+        expect(removeTelegramKeyboard).toHaveBeenCalledWith(123, '⏳ Guardando asistencia de Ana…', 'token123');
+    });
+
+    test('resumen de cierre incluye siete confirmaciones y fecha de Venezuela', async () => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-11-03T02:40:00Z'));
+        try {
+            context.userCommand = '✅ Confirmo';
+            context.chatStates[123] = {
+                state: 'WAITING_FOR_REMINDER_CONFIRMATION', nombre: 'Maryory', tienda: 'History',
+                accion: '🌙 Salida', closingAnswer: 'Cierra: Sí',
+                pendingReminders: ['¿Ambientador desconectado?'],
+                reminderAnswers: Array.from({ length: 6 }, (_, i) => `Recordatorio ${i}, Si, confirmo`)
+            };
+            await marcarCommand.execute(context);
+            expect(enqueueJob.mock.calls[0][0].attendanceSummary).toBe(
+                '✅ Salida registrada\nMaryory · History\nCierre: Sí\nConfirmó los 7 recordatorios.\n02/11/2026, 22:40 (Venezuela)'
+            );
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     test('Salida con cierre pide los recordatorios', async () => {
@@ -222,6 +257,10 @@ describe('Command: Marcar', () => {
             accion: '🌙 Salida',
             reminders: 'Cierra: Sí | Cierre caja?, No, no confirmo | Cierre punto?, Si, confirmo'
         }));
+        const { attendanceSummary } = enqueueJob.mock.calls[0][0];
+        expect(attendanceSummary).toContain('Recordatorios: 1 de 2 confirmados.');
+        expect(attendanceSummary).toContain('⚠️ No confirmó: Cierre caja?');
+        expect(attendanceSummary).not.toContain('Confirmó los 2 recordatorios.');
         expect(context.chatStates[123]).toBeUndefined();
     });
 });

@@ -30,6 +30,29 @@ function chunkArray(array, size) {
 async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
     const { nombre, tienda, accion, openingAnswer, closingAnswer, reminderAnswers = [] } = chatState;
     const remindersStr = [openingAnswer, closingAnswer, ...reminderAnswers].filter(Boolean).join(' | ');
+    const titles = {
+        [ENTRY]: 'Entrada registrada',
+        [BREAK_START]: 'Inicio de descanso registrado',
+        [BREAK_END]: 'Fin de descanso registrado',
+        [EXIT]: 'Salida registrada'
+    };
+    const confirmed = reminderAnswers.filter(answer => answer.endsWith(', Si, confirmo')).length;
+    const timestamp = new Intl.DateTimeFormat('es-VE', {
+        timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false
+    }).format(new Date());
+    const attendanceSummary = [
+        `✅ ${titles[accion] || 'Asistencia registrada'}`,
+        `${nombre} · ${tienda}`,
+        openingAnswer && openingAnswer.replace('Abre:', 'Apertura:'),
+        closingAnswer && closingAnswer.replace('Cierra:', 'Cierre:'),
+        reminderAnswers.length > 0 && (confirmed === reminderAnswers.length
+            ? (confirmed === 1 ? 'Confirmó el recordatorio.' : `Confirmó los ${confirmed} recordatorios.`)
+            : `Recordatorios: ${confirmed} de ${reminderAnswers.length} confirmados.`),
+        ...reminderAnswers.filter(answer => answer.endsWith(', No, no confirmo'))
+            .map(answer => `⚠️ No confirmó: ${answer.slice(0, -', No, no confirmo'.length)}`),
+        `${timestamp} (Venezuela)`
+    ].filter(Boolean).join('\n');
 
     const job = {
         chatId: chatId,
@@ -37,6 +60,7 @@ async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
         tienda,
         accion,
         reminders: remindersStr,
+        attendanceSummary,
         jobType: 'asistencia',
         botToken: storedBotToken,
         originalMessageText: `/marcar ${nombre} ${tienda} ${accion}`
@@ -45,7 +69,7 @@ async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
     enqueueJob(job);
     delete chatStates[chatId];
 
-    await removeTelegramKeyboard(chatId, `✅ ¡Listo! Registrando asistencia: ${accion} para ${nombre} en ${tienda}. ✨`, storedBotToken);
+    await removeTelegramKeyboard(chatId, `⏳ Guardando asistencia de ${nombre}…`, storedBotToken);
     processCommandQueue();
 }
 
@@ -94,7 +118,7 @@ module.exports = {
                 botName: botName,
                 botToken: botToken
             };
-            await sendTelegramKeyboard(chatId, "👋 ¡Hola! Vamos a registrar tu asistencia. ¿Quién eres?", employeeKeyboard, botToken);
+            await sendTelegramKeyboard(chatId, "👋 ¿Quién eres? Selecciona tu nombre.", employeeKeyboard, botToken);
             return;
         }
 
@@ -105,7 +129,7 @@ module.exports = {
         if (chatState.state === "WAITING_FOR_EMPLOYEE_NAME") {
             chatState.nombre = userCommand;
             chatState.state = "WAITING_FOR_STORE";
-            await sendTelegramKeyboard(chatId, `📍 Entendido, ${userCommand}. ¿En qué tienda estás hoy?`, STORES, storedBotToken);
+            await sendTelegramKeyboard(chatId, `📍 ${userCommand}, ¿en qué tienda estás?`, STORES, storedBotToken);
             return;
         }
 
@@ -113,7 +137,7 @@ module.exports = {
         if (chatState.state === "WAITING_FOR_STORE") {
             chatState.tienda = userCommand;
             chatState.state = "WAITING_FOR_ASISTENCIA_ACTION";
-            await sendTelegramKeyboard(chatId, "📝 ¿Qué acción vas a realizar?", ACTIONS, storedBotToken);
+            await sendTelegramKeyboard(chatId, "📝 ¿Qué vas a registrar?", ACTIONS, storedBotToken);
             return;
         }
 
@@ -156,7 +180,7 @@ module.exports = {
             chatState.pendingReminders = [...reminders];
             chatState.reminderAnswers = [];
             chatState.state = 'WAITING_FOR_REMINDER_CONFIRMATION';
-            await sendTelegramKeyboard(chatId, `🔔 ${reminders[0]}`, REMINDER_ANSWERS, storedBotToken);
+            await sendTelegramKeyboard(chatId, `🔔 Cierre · 1/${reminders.length}\n${reminders[0]}`, REMINDER_ANSWERS, storedBotToken);
             return;
         }
 
@@ -169,7 +193,7 @@ module.exports = {
                 if (chatState.pendingReminders.length > 0) {
                     // Show next reminder
                     const nextReminder = chatState.pendingReminders[0];
-                    await sendTelegramKeyboard(chatId, `🔔 ${nextReminder}`, REMINDER_ANSWERS, storedBotToken);
+                    await sendTelegramKeyboard(chatId, `🔔 Cierre · ${chatState.reminderAnswers.length + 1}/${chatState.reminderAnswers.length + chatState.pendingReminders.length}\n${nextReminder}`, REMINDER_ANSWERS, storedBotToken);
                     return;
                 } else {
                     // All reminders confirmed, finish
