@@ -87,9 +87,11 @@ test('botón ajeno, antiguo y dos confirmaciones paralelas no saltan pasos', asy
   expect(session().state.state).toBe('WAITING_FOR_STORE');
 });
 
-test('marcar limpia teclado legado y retira los botones de cada paso consumido', async () => {
+test('marcar pregunta directamente, retira botones usados y limpia el teclado al terminar', async () => {
   await send('/marcar');
-  expect(sent[0].reply_markup).toEqual({ remove_keyboard: true });
+  expect(sent).toHaveLength(1);
+  expect(sent[0].text).toContain('Selecciona tu nombre');
+  expect(sent[0].reply_markup.inline_keyboard).toBeDefined();
   for (const index of [0, 0, 0, 1]) {
     const prompt = session().prompt;
     await click(index);
@@ -218,7 +220,7 @@ test('update duplicado en curso comparte ejecución', async () => {
   finish(['Ana']);
   expect(await first).toBe(200); expect(await second).toBe(200);
   expect(reimbursement.getEmployees).toHaveBeenCalledTimes(1);
-  expect(sent).toHaveLength(2);
+  expect(sent).toHaveLength(1);
 });
 
 test('comandos report, deposito y cierre conservan trabajo API', async () => {

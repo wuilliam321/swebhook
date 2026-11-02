@@ -102,7 +102,6 @@ async function telegramUpdate(req) {
             }
             if (isCommand) {
                 await updateTelegramPrompt(message.chat.id, session.prompt, token);
-                await notify('Iniciando operación. Usa las opciones del nuevo mensaje.');
                 newOperation(session);
                 context.operationId = session.operationId;
             } else if (!callback) {
