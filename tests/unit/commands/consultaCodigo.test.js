@@ -1,5 +1,5 @@
 const consultaCodigoCommand = require('../../../src/commands/consultaCodigo');
-const { commandQueue, processCommandQueue, isJobDuplicate } = require('../../../src/queue');
+const { enqueueJob, processCommandQueue, isJobDuplicate } = require('../../../src/queue');
 const { sendTelegramMessage } = require('../../../src/api/telegram');
 
 jest.mock('../../../src/queue');
@@ -21,7 +21,6 @@ describe('Command: Consulta Codigo', () => {
             req: { body: { message: { chat: { id: 123 } } } }
         };
         isJobDuplicate.mockReturnValue(false);
-        commandQueue.push = jest.fn();
     });
 
     test('canHandle should return true for /consulta_codigo or WAITING_FOR_PRODUCT_CODE state', () => {
@@ -47,7 +46,7 @@ describe('Command: Consulta Codigo', () => {
         
         await consultaCodigoCommand.execute(context);
 
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
             jobType: 'product_lookup',
             code: 'PROD123',
             originalMessageText: 'PROD123'
@@ -64,7 +63,7 @@ describe('Command: Consulta Codigo', () => {
         
         await consultaCodigoCommand.execute(context);
 
-        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(enqueueJob).not.toHaveBeenCalled();
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Ya hay una consulta para el producto'), 'token123');
     });
 });

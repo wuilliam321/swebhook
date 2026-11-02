@@ -1,5 +1,5 @@
 const cierreCommand = require('../../../src/commands/cierre');
-const { hasPendingCierreJob, commandQueue, processCommandQueue } = require('../../../src/queue');
+const { hasPendingCierreJob, enqueueJob, processCommandQueue } = require('../../../src/queue');
 const { sendTelegramMessage } = require('../../../src/api/telegram');
 
 jest.mock('../../../src/queue');
@@ -22,7 +22,6 @@ describe('Command: Cierre', () => {
         };
         // Mock default behavior
         hasPendingCierreJob.mockReturnValue(false);
-        commandQueue.push = jest.fn();
     });
 
     test('canHandle should return true for /cierre_ prefix', () => {
@@ -35,7 +34,7 @@ describe('Command: Cierre', () => {
         await cierreCommand.execute(context);
 
         expect(hasPendingCierreJob).toHaveBeenCalledWith('wuilliam');
-        expect(commandQueue.push).toHaveBeenCalledWith({
+        expect(enqueueJob).toHaveBeenCalledWith({
             chatId: 123,
             account: 'wuilliam',
             originalMessageText: '/cierre_wuilliam',
@@ -53,7 +52,7 @@ describe('Command: Cierre', () => {
 
         await cierreCommand.execute(context);
 
-        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(enqueueJob).not.toHaveBeenCalled();
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Ya hay una solicitud de cierre para "wuilliam" en proceso'), 'token123');
         expect(processCommandQueue).not.toHaveBeenCalled();
     });
@@ -63,7 +62,7 @@ describe('Command: Cierre', () => {
         await cierreCommand.execute(context);
 
         expect(hasPendingCierreJob).not.toHaveBeenCalled();
-        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(enqueueJob).not.toHaveBeenCalled();
         expect(sendTelegramMessage).not.toHaveBeenCalled();
     });
 });

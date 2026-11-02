@@ -4,7 +4,7 @@ const {
     buildOutfitSummary 
 } = require('../outfit');
 const { sendTelegramMessage } = require('../api/telegram');
-const { commandQueue, processCommandQueue, isJobDuplicate } = require('../queue');
+const { enqueueJob, processCommandQueue, isJobDuplicate } = require('../queue');
 
 /**
  * Command to create outfits.
@@ -65,7 +65,7 @@ module.exports = {
                         return;
                     }
 
-                    commandQueue.push(job);
+                    enqueueJob(job);
                     processCommandQueue();
                 }
             });

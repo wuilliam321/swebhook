@@ -1,80 +1,73 @@
+const { conversationContext, promptFor, logEvent } = require('../conversations');
 const axios = require('axios').default;
 const { TELEGRAM_TOKEN, MOCK_TELEGRAM, PHONE_ID, GRAPH_API_TOKEN } = require('../config');
 const { escapeMarkdownV2 } = require('../utils');
 const { createTelegramPhotoPayload } = require('../outfit'); // Assuming outfit.js stays in root for now
 
-async function sendTelegramMessage(chatId, message, token = TELEGRAM_TOKEN) {
+async function updateTelegramPrompt(chatId, prompt, token) {
+    if (!prompt?.messageId || !prompt.values || MOCK_TELEGRAM) return;
+    try {
+        await axios.post(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+            chat_id: chatId, message_id: prompt.messageId, reply_markup: { inline_keyboard: [] }
+        }, { timeout: 15000 });
+    } catch (error) {
+        logEvent('keyboard_cleanup_failed', { code: error.code, status: error.response?.status });
+    }
+}
+
+async function sendConversationMessage(chatId, message, keyboard, token, remove = false) {
+    const context = conversationContext.getStore();
+    const active = context && context.session.operationId === context.operationId;
+    if (active) await updateTelegramPrompt(chatId, context.session.prompt, token);
+    const prompt = !remove && active ? promptFor(keyboard) : null;
+    const payload = { chat_id: chatId, text: escapeMarkdownV2(message), parse_mode: 'MarkdownV2' };
+    if (prompt && keyboard) {
+        payload.reply_markup = { inline_keyboard: keyboard.map(row => row.map(text => ({
+            text, callback_data: `flow:${prompt.id}:${prompt.values.indexOf(text)}`
+        }))) };
+    } else if (prompt) {
+        payload.reply_markup = { force_reply: true, selective: true };
+        if (context.messageId) payload.reply_parameters = { message_id: context.messageId };
+    } else if (!context && keyboard) {
+        payload.reply_markup = { keyboard, resize_keyboard: true, one_time_keyboard: true };
+    } else {
+        payload.reply_markup = { remove_keyboard: true };
+    }
     if (MOCK_TELEGRAM) {
-        console.log(`[MOCK TELEGRAM] Sending message to ${chatId} using token ${token}: ${message}`);
+        if (prompt) prompt.messageId = context.messageId;
         return { success: true };
     }
+    try {
+        let response;
+        const send = () => axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload, { timeout: 15000 });
+        try {
+            response = await send();
+        } catch (error) {
+            const retryAfter = Number(error.response?.data?.parameters?.retry_after);
+            if (error.response?.status !== 429 || !Number.isFinite(retryAfter) || retryAfter <= 0) throw error;
+            logEvent('telegram_rate_limited', { retryAfter });
+            await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+            response = await send();
+        }
+        if (prompt && context.session.prompt === prompt) prompt.messageId = response.data.result.message_id;
+        logEvent('telegram_sent', { promptId: prompt?.id });
+        return { success: true, messageId: response.data.result.message_id };
+    } catch (error) {
+        logEvent('telegram_failed', { code: error.code, status: error.response?.status });
+        throw new Error('No se pudo enviar la pregunta a Telegram');
+    }
+}
 
-    const escapedOutput = escapeMarkdownV2(message);
-    return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-        chat_id: chatId,
-        text: escapedOutput,
-        parse_mode: 'MarkdownV2'
-    })
-        .then(() => {
-            console.log(`Mensaje "${message}" enviado con éxito`);
-            return { success: true };
-        })
-        .catch(error => {
-            console.error(`Error al enviar mensaje "${message}":`, error);
-            return { success: false, error };
-        });
+async function sendTelegramMessage(chatId, message, token = TELEGRAM_TOKEN) {
+    return sendConversationMessage(chatId, message, null, token);
 }
 
 async function sendTelegramKeyboard(chatId, message, keyboard, token = TELEGRAM_TOKEN) {
-    if (MOCK_TELEGRAM) {
-        console.log(`[MOCK TELEGRAM] Sending keyboard to ${chatId} using token ${token}: ${message}`);
-        return { success: true };
-    }
-
-    const escapedOutput = escapeMarkdownV2(message);
-    return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-        chat_id: chatId,
-        text: escapedOutput,
-        parse_mode: 'MarkdownV2',
-        reply_markup: {
-            keyboard: keyboard,
-            resize_keyboard: true,
-            one_time_keyboard: true
-        }
-    })
-        .then(() => {
-            console.log(`Mensaje con teclado "${message}" enviado con éxito`);
-            return { success: true };
-        })
-        .catch(error => {
-            console.error(`Error al enviar mensaje con teclado "${message}":`, error);
-            return { success: false, error };
-        });
+    return sendConversationMessage(chatId, message, keyboard, token);
 }
 
 async function removeTelegramKeyboard(chatId, message, token = TELEGRAM_TOKEN) {
-    if (MOCK_TELEGRAM) {
-        console.log(`[MOCK TELEGRAM] Removing keyboard for ${chatId} using token ${token}: ${message}`);
-        return { success: true };
-    }
-
-    const escapedOutput = escapeMarkdownV2(message);
-    return axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-        chat_id: chatId,
-        text: escapedOutput,
-        parse_mode: 'MarkdownV2',
-        reply_markup: {
-            remove_keyboard: true
-        }
-    })
-        .then(() => {
-            console.log(`Teclado removido en chat ${chatId}`);
-            return { success: true };
-        })
-        .catch(error => {
-            console.error(`Error al remover teclado en chat ${chatId}:`, error);
-            return { success: false, error };
-        });
+    return sendConversationMessage(chatId, message, null, token, true);
 }
 
 async function sendOutfitPhoto(chatId, base64Image, caption, token = TELEGRAM_TOKEN) {
@@ -329,6 +322,7 @@ const sendFBMessage = async (to, text) => {
 };
 
 module.exports = {
+    updateTelegramPrompt,
     sendTelegramMessage,
     sendTelegramKeyboard,
     removeTelegramKeyboard,

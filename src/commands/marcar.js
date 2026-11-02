@@ -1,4 +1,4 @@
-const { commandQueue, processCommandQueue } = require('../queue');
+const { enqueueJob, processCommandQueue } = require('../queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
 const { getReminders } = require('../api/firebase');
 const { getEmployees } = require('../api/reimbursement');
@@ -42,7 +42,7 @@ async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
         originalMessageText: `/marcar ${nombre} ${tienda} ${accion}`
     };
 
-    commandQueue.push(job);
+    enqueueJob(job);
     delete chatStates[chatId];
 
     await removeTelegramKeyboard(chatId, `✅ ¡Listo! Registrando asistencia: ${accion} para ${nombre} en ${tienda}. ✨`, storedBotToken);

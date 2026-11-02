@@ -47,12 +47,17 @@ async function advance(chatId, state, chatStates) {
         return;
     }
     state.state = processing;
+    saveReimbursement(chatId, state, chatStates).catch(() => console.error(JSON.stringify({ event: 'reimbursement_notification_failed' })));
+}
+
+async function saveReimbursement(chatId, state, chatStates) {
+    const { draft, botToken } = state;
     try {
         await appendReimbursement(draft, state.imageUrl);
-        delete chatStates[chatId];
-        await sendTelegramMessage(chatId, 'Recibimos tu solicitud. Te haremos el reembolso a la brevedad posible.', botToken);
+        if (chatStates[chatId] === state) delete chatStates[chatId];
+        await sendTelegramMessage(chatId, `Reembolso de ${draft.employee}: recibimos tu solicitud. Te haremos el reembolso a la brevedad posible.`, botToken);
     } catch (error) {
-        delete chatStates[chatId];
+        if (chatStates[chatId] === state) delete chatStates[chatId];
         console.error('Error guardando reembolso:', error.response?.data || error.message);
         await sendTelegramMessage(chatId, 'No pude confirmar el registro. Revisa la planilla antes de enviar otra solicitud.', botToken);
     }
@@ -60,6 +65,7 @@ async function advance(chatId, state, chatStates) {
 
 async function processPhoto(chatId, fileId, caption, botToken, chatStates) {
     let state;
+    const pendingState = chatStates[chatId];
     try {
         const image = await downloadPhoto(fileId, botToken);
         const { reasons, accounts, employees } = await getOptions();
@@ -68,6 +74,7 @@ async function processPhoto(chatId, fileId, caption, botToken, chatStates) {
         const account = canonical('BS Pago Movil', accounts);
         if (!account) throw new Error('BS Pago Movil no existe en Cuentas!K:K');
         const imageUrl = await uploadReceipt(image);
+        if (chatStates[chatId] !== pendingState) return;
         state = { state: processing, draft: { account }, reasons, employees, imageUrl, botToken, extractionPending: true, employeeReady: false };
         chatStates[chatId] = state;
         await advance(chatId, state, chatStates);
@@ -77,7 +84,7 @@ async function processPhoto(chatId, fileId, caption, botToken, chatStates) {
         state.extractionPending = false;
         if (state.employeeReady) await advance(chatId, state, chatStates);
     } catch (error) {
-        if (state && chatStates[chatId] !== state) return;
+        if (chatStates[chatId] !== (state || pendingState)) return;
         chatStates[chatId] = { state: waitingPhoto, botToken };
         console.error('Error procesando reembolso:', error.response?.data || error.message);
         const message = `No pude procesar el comprobante: ${error.message}. Envía otra foto.`;
@@ -112,7 +119,8 @@ module.exports = {
             }
             current.state = processing;
             await sendTelegramMessage(chatId, 'Comprobante recibido. Estoy registrando la solicitud.', token);
-            processPhoto(chatId, photo.file_id, req.body.message.caption, token, chatStates);
+            processPhoto(chatId, photo.file_id, req.body.message.caption, token, chatStates)
+                .catch(() => console.error(JSON.stringify({ event: 'reimbursement_notification_failed' })));
             return;
         }
         if (current.state === processing) {

@@ -1,5 +1,5 @@
 const reportCommand = require('../../../src/commands/report');
-const { commandQueue, processCommandQueue, isJobDuplicate } = require('../../../src/queue');
+const { enqueueJob, processCommandQueue, isJobDuplicate } = require('../../../src/queue');
 const { sendTelegramMessage } = require('../../../src/api/telegram');
 
 jest.mock('../../../src/queue');
@@ -20,7 +20,6 @@ describe('Command: Report', () => {
             req: { body: { message: { chat: { id: 123 } } } }
         };
         isJobDuplicate.mockReturnValue(false);
-        commandQueue.push = jest.fn();
     });
 
     test('canHandle should return true for /report or WAITING_FOR_REPORT_OPTION state', () => {
@@ -46,7 +45,7 @@ describe('Command: Report', () => {
         
         await reportCommand.execute(context);
 
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
             jobType: 'report',
             period: '3',
             originalMessageText: '/report 3'
@@ -62,7 +61,7 @@ describe('Command: Report', () => {
         
         await reportCommand.execute(context);
 
-        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(enqueueJob).not.toHaveBeenCalled();
         expect(context.chatStates[123]).toBeDefined(); // State should remain
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('un número entre 0 y 6'), 'token123');
     });
@@ -74,7 +73,7 @@ describe('Command: Report', () => {
         
         await reportCommand.execute(context);
 
-        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(enqueueJob).not.toHaveBeenCalled();
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Ya hay una solicitud de reporte para este período'), 'token123');
     });
 });

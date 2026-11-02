@@ -1,5 +1,5 @@
 const marcarCommand = require('../../../src/commands/marcar');
-const { commandQueue, processCommandQueue } = require('../../../src/queue');
+const { enqueueJob, processCommandQueue } = require('../../../src/queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../../../src/api/telegram');
 const { getReminders } = require('../../../src/api/firebase');
 const { getEmployees } = require('../../../src/api/reimbursement');
@@ -34,7 +34,6 @@ describe('Command: Marcar', () => {
                 }
             }
         };
-        commandQueue.push = jest.fn();
     });
 
     test('canHandle should return true for /marcar or related states', () => {
@@ -112,7 +111,7 @@ describe('Command: Marcar', () => {
         
         await marcarCommand.execute(context);
         
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
             jobType: 'asistencia',
             nombre: 'Ana',
             tienda: 'Rodeo',
@@ -133,7 +132,7 @@ describe('Command: Marcar', () => {
         
         await marcarCommand.execute(context);
 
-        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(enqueueJob).not.toHaveBeenCalled();
         expect(getReminders).not.toHaveBeenCalled();
         expect(context.chatStates[123].state).toBe('WAITING_FOR_CLOSING');
         expect(sendTelegramKeyboard).toHaveBeenCalledWith(123, '¿Estás cerrando la tienda?', [['✅ Sí', '❌ No']], 'token123');
@@ -161,7 +160,7 @@ describe('Command: Marcar', () => {
 
         context.userCommand = '✅ Sí';
         await marcarCommand.execute(context);
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({ accion: '☀️ Entrada', reminders: 'Abre: Sí' }));
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({ accion: '☀️ Entrada', reminders: 'Abre: Sí' }));
         expect(getReminders).not.toHaveBeenCalled();
     });
 
@@ -172,7 +171,7 @@ describe('Command: Marcar', () => {
 
         context.userCommand = '❌ No';
         await marcarCommand.execute(context);
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({ accion: '🌙 Salida', reminders: 'Cierra: No' }));
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({ accion: '🌙 Salida', reminders: 'Cierra: No' }));
         expect(getReminders).not.toHaveBeenCalled();
     });
 
@@ -216,7 +215,7 @@ describe('Command: Marcar', () => {
         
         await marcarCommand.execute(context);
         
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
             jobType: 'asistencia',
             nombre: 'Ana',
             tienda: 'Rodeo',

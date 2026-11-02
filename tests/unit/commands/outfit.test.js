@@ -5,7 +5,7 @@ const {
     buildOutfitSummary 
 } = require('../../../src/outfit');
 const { sendTelegramMessage } = require('../../../src/api/telegram');
-const { commandQueue, processCommandQueue, isJobDuplicate } = require('../../../src/queue');
+const { enqueueJob, processCommandQueue, isJobDuplicate } = require('../../../src/queue');
 
 jest.mock('../../../src/outfit');
 jest.mock('../../../src/api/telegram');
@@ -26,7 +26,6 @@ describe('Command: Outfit', () => {
             req: { body: { message: { chat: { id: 123 }, text: '/outfit' } } }
         };
         isJobDuplicate.mockReturnValue(false);
-        commandQueue.push = jest.fn();
     });
 
     test('canHandle should return true for /outfit or OUTFIT_COLLECTING state', () => {
@@ -78,7 +77,7 @@ describe('Command: Outfit', () => {
 
         await capturedEnqueueJob(jobPayload);
 
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
             jobType: 'outfit',
             pieces: { fullBody: 'ABC' },
             summary: 'Outfit Summary'

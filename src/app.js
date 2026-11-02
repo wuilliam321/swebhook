@@ -1,8 +1,6 @@
 const express = require("express");
 const {
     WEBHOOK_VERIFY_TOKEN,
-    TELEGRAM_TOKEN,
-    PORT,
     getTokenForBot,
     isValidBotName
 } = require('./config');
@@ -11,19 +9,9 @@ const {
     extractBaseCommand,
     runCommand
 } = require('./utils');
-const { chatStates } = require('./state');
 const {
-    commandQueue,
-    processCommandQueue,
-    hasPendingPagoMovilJob,
-    hasPendingCierreJob,
-    hasPendingCasheaAbonosJob,
-    isJobDuplicate
-} = require('./queue');
-const {
-    sendTelegramMessage,
-    sendFBMessage,
-    sendProductDetails
+    updateTelegramPrompt,
+    sendFBMessage
 } = require('./api/telegram');
 const { generateRequest } = require('./api/inventory');
 
@@ -43,81 +31,125 @@ const commands = [
 const app = express();
 app.use(express.json());
 
-app.post("/telegram", async (req, res) => {
-    console.log("CHAT full request", req.body);
+const { BOT_TOKENS } = require('./config');
+const { conversationContext, sessionFor, stateView, newOperation, logEvent, rememberUpdate, serial } = require('./conversations');
+const axios = require('axios').default;
 
-    // Handle different types of Telegram updates
-    // my_chat_member updates occur when bot is added/removed from groups
-    if (req.body.my_chat_member) {
-        console.log("Received my_chat_member update", req.body.my_chat_member);
-        res.status(200).send('OK'); // Acknowledge receipt
-        return;
+async function telegramUpdate(req) {
+    const callback = req.body.callback_query;
+    const message = callback?.message || req.body.message;
+    const user = callback?.from || message?.from;
+    if (!message || !user || user.is_bot) return;
+    const configured = [...new Set(Object.values(BOT_TOKENS).filter(Boolean))];
+    const bot = req.params?.bot || 'default';
+    const token = BOT_TOKENS[bot];
+    if (!token || (!req.params?.bot && configured.length !== 1)) {
+        throw new Error('Webhook requiere bot receptor explícito');
     }
+    const session = sessionFor(token.split(':')[0], message.chat.id, user.id);
+    return serial(session, async () => {
+        const started = Date.now();
+        let userCommand = message.text || '';
+        const stateBefore = session.state?.state;
+        const context = { session, bot: token.split(':')[0], chatId: message.chat.id,
+            userId: user.id, messageId: message.message_id, operationId: session.operationId };
+        return conversationContext.run(context, async () => {
+            const notify = async text => {
+                if (callback) {
+                    try {
+                        await axios.post(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+                            callback_query_id: callback.id, text
+                        }, { timeout: 15000 });
+                    } catch (error) {
+                        logEvent('callback_answer_failed', { code: error.code, status: error.response?.status });
+                    }
+                } else {
+                    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+                        chat_id: message.chat.id, text,
+                        reply_markup: { remove_keyboard: true },
+                        reply_parameters: { message_id: message.message_id }
+                    }, { timeout: 15000 });
+                }
+            };
+            if (callback) {
+                const [, promptId, indexText] = (callback.data || '').split(':');
+                const prompt = session.prompt;
+                const index = Number(indexText);
+                if (!callback.data?.startsWith('flow:') || !prompt || prompt.id !== promptId ||
+                    prompt.messageId !== message.message_id || !Number.isInteger(index) || !prompt.values?.[index]) {
+                    logEvent('input_rejected', { reason: 'foreign_or_stale_button' });
+                    await notify('Este botón ya no está disponible para ti. Escribe /marcar para empezar de nuevo.');
+                    return;
+                }
+                userCommand = prompt.values[index];
+                await notify('');
+                await updateTelegramPrompt(message.chat.id, prompt, token);
+                session.prompt = undefined;
+            }
+            const isCommand = userCommand.startsWith('/');
+            const mentionedBot = extractBotName(userCommand);
+            if (isCommand && mentionedBot && (!isValidBotName(mentionedBot) || getTokenForBot(mentionedBot) !== token)) {
+                logEvent('input_rejected', { reason: 'wrong_bot' });
+                return;
+            }
+            const baseCommand = extractBaseCommand(userCommand);
+            const handler = isCommand ? commands.find(command => command.canHandle(baseCommand, undefined)) :
+                commands.find(command => command.canHandle(baseCommand, session.state));
+            if (!handler) {
+                logEvent('input_rejected', { reason: 'no_matching_flow' });
+                if (!callback && !isCommand) await notify('Sin operación activa. Inicia el comando que necesitas.');
+                return;
+            }
+            if (isCommand) {
+                await updateTelegramPrompt(message.chat.id, session.prompt, token);
+                await notify('Iniciando operación. Usa las opciones del nuevo mensaje.');
+                newOperation(session);
+                context.operationId = session.operationId;
+            } else if (!callback) {
+                const prompt = session.prompt;
+                if (!prompt?.messageId || message.reply_to_message?.message_id !== prompt.messageId) {
+                    logEvent('input_rejected', { reason: 'reply_to_current_prompt_required' });
+                    await notify('Responde directamente a la pregunta vigente de tu operación.');
+                    return;
+                }
+                if (prompt.values && !prompt.values.includes(baseCommand)) {
+                    await notify('Selecciona una opción de la pregunta vigente.');
+                    return;
+                }
+                await updateTelegramPrompt(message.chat.id, prompt, token);
+                session.prompt = undefined;
+            }
+            const scopedStates = stateView(session, context.operationId);
+            const request = callback ? { ...req, body: { ...req.body, message: { ...message, from: user, text: baseCommand } } } : req;
+            logEvent('update_started', { updateId: req.body.update_id, command: isCommand ? baseCommand.split(/\s/)[0] : undefined });
+            await handler.execute({ chatId: message.chat.id, userCommandRaw: userCommand,
+                userCommand: baseCommand, botToken: token, botName: bot, isGroupChat: message.chat.type !== 'private',
+                chatStates: scopedStates, req: request });
+            logEvent('update_completed', { updateId: req.body.update_id, from: stateBefore,
+                to: session.state?.state, durationMs: Date.now() - started });
+        });
+    });
+}
 
-    // Handle other update types like callback_query, edited_message, etc.
-    if (!req.body.message) {
-        console.log("Received non-message update", Object.keys(req.body));
-        res.status(200).send('OK'); // Acknowledge receipt
-        return;
-    }
-    const chatId = req.body.message.chat.id;
-
-    // Determine if this is a group chat
-    const isGroupChat = req.body.message.chat.type === 'group'
-        || req.body.message.chat.type === 'supergroup';
-
-    // Handle non-text messages (new chat members, photos, etc.)
-    // We allow non-text messages if we are in a state that expects them (e.g. WAITING_FOR_AMOUNT)
-    if (!req.body.message.text && !chatStates[chatId]) {
-        console.log("Received non-text message",
-            req.body.message.new_chat_member ? "new_chat_member" :
-                req.body.message.new_chat_members ? "new_chat_members" :
-                    "unknown message type",
-            isGroupChat ? "(group chat)" : "(private chat)");
-
-        // We could add welcome messages or other handling here if needed
-
-        res.status(200).send('OK'); // Acknowledge receipt
-        return;
-    }
-
-    const userCommandRaw = req.body.message.text || '';
-
-    // Extract bot name and base command if present
-    const botName = extractBotName(userCommandRaw);
-    const userCommand = extractBaseCommand(userCommandRaw);
-
-    // Get token for this bot
-    const botToken = botName ? getTokenForBot(botName) : TELEGRAM_TOKEN;
-
-    // Log details about the incoming command
-    console.log(
-        "CHAT req:",
-        userCommandRaw ? userCommandRaw : '[Media Message]',
-        botName ? `(bot: ${botName})` : '',
-        isGroupChat ? '(group chat)' : '(private chat)',
-        isValidBotName(botName) ? '(valid bot)' : botName ? '(unknown bot)' : ''
-    );
-
-    // Validate bot name in group chats - commands in group chats should include valid bot name
-    if (isGroupChat && userCommandRaw.startsWith('/') && botName && !isValidBotName(botName)) {
-        console.log(`Ignoring command with unknown bot name: ${botName}`);
-        res.status(200).send('OK');
-        return;
-    }
-
-    // Orchestrator: Try to handle the command with specialized command objects
-    const context = { chatId, userCommandRaw, userCommand, botToken, botName, isGroupChat, chatStates, req, res };
-    for (const command of commands) {
-        if (command.canHandle(userCommand, chatStates[chatId])) {
-            await command.execute(context);
-            return res.status(200).send('OK');
+async function telegramWebhook(req, res) {
+    try {
+        if (!req.params?.bot && new Set(Object.values(BOT_TOKENS).filter(Boolean)).size !== 1) {
+            throw new Error('Webhook ambiguo');
         }
+        const bot = (BOT_TOKENS[req.params?.bot || 'default'] || '').split(':')[0];
+        const work = () => telegramUpdate(req);
+        if (req.body.update_id !== undefined) await rememberUpdate(`${bot}:${req.body.update_id}`, work);
+        else await work();
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error(JSON.stringify({ event: 'telegram_update_failed', updateId: req.body.update_id,
+            code: error.code, message: 'No se pudo procesar actualización' }));
+        res.status(500).send('Processing failed');
     }
+}
 
-    console.log("nothing to do for", userCommand);
-    res.status(200).send('OK');
-})
+app.post('/telegram', telegramWebhook);
+app.post('/telegram/:bot', telegramWebhook);
 
 app.post("/chat", async (req, res) => {
     console.log("CHAT req", req["body"]);

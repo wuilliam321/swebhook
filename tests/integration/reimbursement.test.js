@@ -20,6 +20,7 @@ jest.mock('../../src/api/sheetsExpenses', () => ({
     recordExpense: jest.fn()
 }));
 jest.mock('../../src/api/telegram', () => ({
+    updateTelegramPrompt: jest.fn().mockResolvedValue(),
     sendTelegramMessage: jest.fn().mockResolvedValue({ success: true }),
     sendTelegramKeyboard: jest.fn().mockResolvedValue({ success: true }),
     removeTelegramKeyboard: jest.fn().mockResolvedValue({ success: true })
@@ -28,7 +29,8 @@ jest.mock('../../src/api/telegram', () => ({
 const axios = require('axios').default;
 const SftpClient = require('ssh2-sftp-client');
 const app = require('../../src/app');
-const { chatStates } = require('../../src/state');
+const { sessionFor, sessions, updates, promptFor } = require('../../src/conversations');
+const chatStates = new Proxy({}, { get: () => sessionFor('telegram-token', chatId, chatId).state });
 const { sendTelegramMessage, sendTelegramKeyboard, removeTelegramKeyboard } = require('../../src/api/telegram');
 
 const chatId = 725;
@@ -36,7 +38,7 @@ const cacheDuration = 24 * 60 * 60 * 1000;
 let now = Date.now();
 let reimbursementRows;
 const telegramHandler = app._router.stack.find(layer => layer.route?.path === '/telegram').route.stack[0].handle;
-const sendUpdate = message => telegramHandler({ body: { message: { chat: { id: chatId, type: 'private' }, ...message } } }, {
+const sendUpdate = message => telegramHandler({ body: { message: { from: { id: chatId }, message_id: 50, reply_to_message: { message_id: sessionFor('telegram-token', chatId, chatId).prompt?.messageId }, chat: { id: chatId, type: 'private' }, ...message } } }, {
     status() { return this; },
     send() { return this; }
 });
@@ -53,7 +55,15 @@ beforeEach(() => {
     now += cacheDuration + 1;
     reimbursementRows = [['', 'helper', '=D2*2']];
     jest.spyOn(Date, 'now').mockImplementation(() => now);
-    Object.keys(chatStates).forEach(id => delete chatStates[id]);
+    sessions.clear();
+    updates.clear();
+    const sendPrompt = async (chatId, text, keyboard) => {
+        const prompt = promptFor(Array.isArray(keyboard) ? keyboard : undefined);
+        if (prompt) prompt.messageId = 99;
+        return { success: true };
+    };
+    sendTelegramMessage.mockImplementation(sendPrompt);
+    sendTelegramKeyboard.mockImplementation(sendPrompt);
     axios.get.mockImplementation(async url => {
         if (url.includes('/getFile')) return { data: { result: { file_path: 'photos/receipt.jpg', file_size: 4 } } };
         if (url.includes('/file/bot')) return { data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) };
@@ -74,6 +84,7 @@ test('registra comprobante, datos extraídos y URL en Reembolsos; confirma al us
     let resolveExtraction;
     let extractionCount = 0;
     axios.post.mockImplementation(async url => {
+        if (url.includes('api.telegram.org')) return { data: { result: {} } };
         if (url.includes('generateContent')) {
             const response = { data: { candidates: [{ content: { parts: [{ text: JSON.stringify({ date: '9/8/2026', amount: '1.234,50', currency: 'VES', reason: 'Transporte', description: 'Taxi a Rodeo, referencia 12345' }) }] } }] } };
             if (++extractionCount === 1) return new Promise(resolve => { resolveExtraction = () => resolve(response); });
@@ -140,6 +151,7 @@ test('registra comprobante, datos extraídos y URL en Reembolsos; confirma al us
 
 test('pide datos ausentes y no confirma cuando Sheets falla', async () => {
     axios.post.mockImplementation(async url => {
+        if (url.includes('api.telegram.org')) return { data: { result: {} } };
         if (url.includes('generateContent')) return { data: { candidates: [{ content: { parts: [{ text: JSON.stringify({ date: '', amount: 20, currency: 'USD', reason: '', description: 'Pago a proveedor' }) }] } }] } };
         if (url.includes(':batchUpdate')) throw new Error('Sheets unavailable');
         throw new Error(`Unexpected POST ${url}`);
@@ -157,6 +169,7 @@ test('pide datos ausentes y no confirma cuando Sheets falla', async () => {
     expect(chatStates[chatId].state).toBe('WAITING_REIMBURSEMENT_REASON');
     expect(sendTelegramKeyboard).toHaveBeenCalledWith(chatId, expect.stringContaining('motivo'), [['Transporte', 'Suministros']], 'telegram-token');
     await sendUpdate({ text: 'Suministros' });
+    await waitUntil(() => chatStates[chatId] === undefined);
 
     const write = axios.post.mock.calls.find(([url]) => url.includes(':batchUpdate'));
     expect(write[1].requests.map(({ updateCells }) => updateCells.start.columnIndex)).toEqual([0, 4, 5, 6, 10, 11]);

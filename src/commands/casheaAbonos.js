@@ -1,4 +1,4 @@
-const { hasPendingCasheaAbonosJob, commandQueue, processCommandQueue } = require('../queue');
+const { hasPendingCasheaAbonosJob, enqueueJob, processCommandQueue } = require('../queue');
 const { sendTelegramMessage } = require('../api/telegram');
 
 /**
@@ -36,7 +36,7 @@ module.exports = {
             jobType: 'cashea_abonos',
             botToken: botToken
         };
-        commandQueue.push(job);
+        enqueueJob(job);
 
         // Clean up state
         if (chatStates[chatId]) {

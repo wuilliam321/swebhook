@@ -1,5 +1,5 @@
 const casheaAbonosCommand = require('../../../src/commands/casheaAbonos');
-const { hasPendingCasheaAbonosJob, commandQueue, processCommandQueue } = require('../../../src/queue');
+const { hasPendingCasheaAbonosJob, enqueueJob, processCommandQueue } = require('../../../src/queue');
 const { sendTelegramMessage } = require('../../../src/api/telegram');
 
 jest.mock('../../../src/queue');
@@ -21,7 +21,6 @@ describe('Command: Cashea Abonos', () => {
         };
         // Mock default behavior
         hasPendingCasheaAbonosJob.mockReturnValue(false);
-        commandQueue.push = jest.fn();
     });
 
     test('canHandle should return true for exactly /cashea_abonos', () => {
@@ -34,7 +33,7 @@ describe('Command: Cashea Abonos', () => {
         await casheaAbonosCommand.execute(context);
 
         expect(hasPendingCasheaAbonosJob).toHaveBeenCalledWith('gilza');
-        expect(commandQueue.push).toHaveBeenCalledWith({
+        expect(enqueueJob).toHaveBeenCalledWith({
             chatId: 123,
             account: 'gilza',
             originalMessageText: '/cashea_abonos',
@@ -51,7 +50,7 @@ describe('Command: Cashea Abonos', () => {
 
         await casheaAbonosCommand.execute(context);
 
-        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(enqueueJob).not.toHaveBeenCalled();
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Ya hay una consulta de Cashea Abonos en proceso'), 'token123');
         expect(processCommandQueue).not.toHaveBeenCalled();
     });

@@ -1,4 +1,4 @@
-const { hasPendingCierreJob, commandQueue, processCommandQueue } = require('../queue');
+const { hasPendingCierreJob, enqueueJob, processCommandQueue } = require('../queue');
 const { sendTelegramMessage } = require('../api/telegram');
 
 /**
@@ -40,7 +40,7 @@ module.exports = {
                 botToken: botToken,
                 isGroupChat: isGroupChat
             };
-            commandQueue.push(job);
+            enqueueJob(job);
 
             // Clean up state
             if (chatStates[chatId]) {

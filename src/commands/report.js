@@ -1,4 +1,4 @@
-const { commandQueue, processCommandQueue, isJobDuplicate } = require('../queue');
+const { enqueueJob, processCommandQueue, isJobDuplicate } = require('../queue');
 const { sendTelegramMessage } = require('../api/telegram');
 
 /**
@@ -67,7 +67,7 @@ module.exports = {
             // Feedback to user
             await sendTelegramMessage(chatId, "⏳ Estamos generando tu reporte. Te lo enviaremos en cuanto esté listo. 🔒", storedBotToken);
 
-            commandQueue.push(job);
+            enqueueJob(job);
             delete chatStates[chatId];
             processCommandQueue();
         } else {

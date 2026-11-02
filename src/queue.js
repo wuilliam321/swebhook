@@ -1,3 +1,4 @@
+const { conversationContext } = require('./conversations');
 const { TELEGRAM_TOKEN } = require('./config');
 const { callPagoMovilAPI, callCierreAPI, callCasheaAbonosAPI } = require('./api/pagoMovil');
 const { callSpendingAPI } = require('./api/spending');
@@ -7,6 +8,10 @@ const { sendTelegramMessage, sendOutfitPhoto, sendProductDetails, sendDepositoDe
 const { buildOutfitSummary, normalizeBase64Image } = require('./outfit'); // Assuming moved to src/outfit.js
 
 const commandQueue = [];
+function enqueueJob(job) {
+    const context = conversationContext.getStore();
+    commandQueue.push(structuredClone({ ...job, operationId: context?.operationId, userId: context?.userId }));
+}
 let currentJob = null;
 
 /**
@@ -17,6 +22,8 @@ let currentJob = null;
 function isJobDuplicate(job) {
     const checkDuplicate = (j) => {
         if (!j || j.jobType !== job.jobType) return false;
+        const userId = job.userId || conversationContext.getStore()?.userId;
+        if (userId && j.userId && userId !== j.userId) return false;
 
         switch (job.jobType) {
             case 'pagomovil':
@@ -110,7 +117,7 @@ async function processCommandQueue() {
     const token = botToken || TELEGRAM_TOKEN; // Use provided token or default
 
     console.log(`Processing job for chatId ${chatId}: ${originalMessageText} (type: ${jobType || 'gasto'})`);
-    console.log('Job details:', JSON.stringify(currentJob, null, 2));
+    console.log(JSON.stringify({ event: 'job_started', operationId: currentJob.operationId, userId: currentJob.userId, jobType }));
 
     try {
         if (jobType === 'pagomovil') {
@@ -295,6 +302,7 @@ function getCurrentJob() {
 
 module.exports = {
     commandQueue,
+    enqueueJob,
     processCommandQueue,
     hasPendingPagoMovilJob,
     hasPendingCierreJob,

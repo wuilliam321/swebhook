@@ -1,4 +1,4 @@
-const { commandQueue, processCommandQueue, isJobDuplicate } = require('../queue');
+const { enqueueJob, processCommandQueue, isJobDuplicate } = require('../queue');
 const { sendTelegramMessage, sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
 const { REASONS, ACCOUNTS, extractExpense, validateExpense, questionFor, mergeDraft } = require('../expense');
 const { recordExpense } = require('../api/sheetsExpenses');
@@ -19,7 +19,7 @@ function choiceKeyboard(options) {
 }
 
 async function handleStructuredExpense(context) {
-    const { chatId, userCommand, botToken, chatStates, req } = context;
+    const { chatId, userCommand, botToken, chatStates } = context;
     const storeCommand = parseStoreCommand(userCommand);
     if (storeCommand) {
         chatStates[chatId] = { state: 'WAITING_FOR_STRUCTURED_EXPENSE', store: 'Ambas', targetStore: storeCommand.store, botToken };
@@ -160,7 +160,7 @@ module.exports = {
             return;
         }
 
-        commandQueue.push(job);
+        enqueueJob(job);
         delete chatStates[chatId]; 
 
         const confirmationMsg = fileId 

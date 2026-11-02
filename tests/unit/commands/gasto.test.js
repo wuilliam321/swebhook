@@ -1,5 +1,5 @@
 const gastoCommand = require('../../../src/commands/gasto');
-const { commandQueue, processCommandQueue, isJobDuplicate } = require('../../../src/queue');
+const { enqueueJob, processCommandQueue, isJobDuplicate } = require('../../../src/queue');
 const { sendTelegramMessage } = require('../../../src/api/telegram');
 
 jest.mock('../../../src/queue');
@@ -27,7 +27,6 @@ describe('Command: Gasto', () => {
             }
         };
         isJobDuplicate.mockReturnValue(false);
-        commandQueue.push = jest.fn();
     });
 
     test('canHandle should return true for /gasto or WAITING_FOR_AMOUNT state', () => {
@@ -68,7 +67,7 @@ describe('Command: Gasto', () => {
         
         await gastoCommand.execute(context);
 
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
             jobType: 'gasto',
             spending: '100 lunch source:999'
         }));
@@ -83,7 +82,7 @@ describe('Command: Gasto', () => {
 
         await gastoCommand.execute(context);
 
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
             jobType: 'gasto',
             fileId: 'voice123',
             mediaType: 'voice'
@@ -98,7 +97,7 @@ describe('Command: Gasto', () => {
 
         await gastoCommand.execute(context);
 
-        expect(commandQueue.push).not.toHaveBeenCalled();
+        expect(enqueueJob).not.toHaveBeenCalled();
         expect(context.chatStates[123].pendingFileId).toBe('large');
         expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Foto recibida'), 'token123');
     });
@@ -114,7 +113,7 @@ describe('Command: Gasto', () => {
 
         await gastoCommand.execute(context);
 
-        expect(commandQueue.push).toHaveBeenCalledWith(expect.objectContaining({
+        expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
             spending: '50 dinner source:999',
             fileId: 'large',
             mediaType: 'photo'

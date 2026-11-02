@@ -63,6 +63,9 @@ Object.keys(process.env).forEach(key => {
 
 // Add default token
 BOT_TOKENS.default = TELEGRAM_TOKEN;
+if (process.env.TELEGRAM_DEFAULT_BOT_NAME && TELEGRAM_TOKEN) {
+    BOT_TOKENS[process.env.TELEGRAM_DEFAULT_BOT_NAME.toLowerCase()] = TELEGRAM_TOKEN;
+}
 
 // Validate required tokens at startup
 const requiredBots = ['septimodiaboutique_bot'];
