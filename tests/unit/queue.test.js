@@ -11,7 +11,13 @@ jest.mock('../../src/api/pagoMovil');
 jest.mock('../../src/api/inventory');
 jest.mock('../../src/outfit');
 
+jest.mock('../../src/config', () => ({ ...jest.requireActual('../../src/config'), TELEGRAM_TOKEN: 'test-token' }));
+
 describe('Unit Tests: Queue Processing and Duplicate Detection', () => {
+    afterEach(async () => {
+        commandQueue.length = 0;
+        await new Promise(resolve => setImmediate(resolve));
+    });
     beforeEach(() => {
         jest.clearAllMocks();
         commandQueue.length = 0;

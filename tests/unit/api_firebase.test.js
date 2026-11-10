@@ -1,10 +1,12 @@
-jest.mock('firebase-admin', () => ({
-    credential: { cert: jest.fn() },
+jest.mock('firebase-admin/app', () => ({
+    cert: jest.fn(),
     initializeApp: jest.fn(),
-    database: jest.fn()
+}));
+jest.mock('firebase-admin/database', () => ({
+    getDatabase: jest.fn(),
 }));
 
-const admin = require('firebase-admin');
+const { getDatabase } = require('firebase-admin/database');
 const { getReminders } = require('../../src/api/firebase');
 
 test('cachea recordatorios 24 horas y comparte consultas simultáneas', async () => {
@@ -12,7 +14,7 @@ test('cachea recordatorios 24 horas y comparte consultas simultáneas', async ()
     const once = jest.fn()
         .mockResolvedValueOnce({ val: () => ({ reminder1: { title: 'Caja' } }) })
         .mockResolvedValueOnce({ val: () => ({ reminder1: { title: 'Caja' }, reminder2: { title: 'Luces' } }) });
-    admin.database.mockReturnValue({ ref: jest.fn().mockReturnValue({ once }) });
+    getDatabase.mockReturnValue({ ref: jest.fn().mockReturnValue({ once }) });
     jest.spyOn(console, 'log').mockImplementation(() => {});
     let now = Date.now();
     jest.spyOn(Date, 'now').mockImplementation(() => now);

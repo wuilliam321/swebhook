@@ -1,4 +1,5 @@
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getDatabase } = require('firebase-admin/database');
 const path = require('path');
 const fs = require('fs');
 
@@ -20,20 +21,20 @@ function initializeFirebase() {
 
         if (serviceAccountEnv) {
             // Load from environment variable (JSON string)
-            credential = admin.credential.cert(JSON.parse(serviceAccountEnv));
+            credential = cert(JSON.parse(serviceAccountEnv));
         } else if (fs.existsSync(serviceAccountPath)) {
             // Load from file
-            credential = admin.credential.cert(serviceAccountPath);
+            credential = cert(serviceAccountPath);
         } else {
             throw new Error('No Firebase credentials found (env FIREBASE_SERVICE_ACCOUNT or file service-account-firebase.json)');
         }
         
-        admin.initializeApp({
+        initializeApp({
             credential,
             databaseURL: 'https://db-images-adm-default-rtdb.firebaseio.com'
         });
 
-        db = admin.database();
+        db = getDatabase();
         return db;
     } catch (error) {
         console.error('Error initializing Firebase Admin:', error.message);
