@@ -3,6 +3,7 @@ const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegra
 const { getReminders } = require('../api/firebase');
 const { getEmployees } = require('../api/reimbursement');
 const { logEvent, errorDetails } = require('../conversations');
+const { sendErrorNotice, failureReason } = require('../api/errorNotices');
 
 const STORES = [
     ["Rodeo", "History"],
@@ -75,6 +76,7 @@ async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
         await removeTelegramKeyboard(chatId, `⏳ Guardando asistencia de ${nombre}…`, storedBotToken);
     } catch (error) {
         logEvent('attendance_progress_notification_failed', errorDetails(error));
+        await sendErrorNotice(chatId, `Falló el aviso de recepción: ${failureReason(error)}. Tu asistencia quedó en cola; ese fallo no cancela su procesamiento. No la repitas.`, storedBotToken);
     } finally {
         processCommandQueue();
     }

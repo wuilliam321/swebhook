@@ -35,6 +35,8 @@ app.use(express.json());
 const { BOT_TOKENS } = require('./config');
 const { conversationContext, sessionFor, stateView, newOperation, logEvent, errorDetails, recoverConversation, rememberUpdate, serial } = require('./conversations');
 const axios = require('axios').default;
+const { processCommandQueue } = require('./queue');
+const { sendErrorNotice, flushErrorNotices, failureReason } = require('./api/errorNotices');
 
 async function telegramUpdate(req) {
     const callback = req.body.callback_query;
@@ -54,8 +56,7 @@ async function telegramUpdate(req) {
         const stateBefore = session.state?.state;
         const context = { session, bot: token.split(':')[0], chatId: message.chat.id,
             userId: user.id, messageId: message.message_id, operationId: session.operationId, updateId: req.body.update_id };
-        const attendance = callback || !userCommand.startsWith('/')
-            ? marcar.canHandle('', session.state) : extractBaseCommand(userCommand) === '/marcar';
+        flushErrorNotices(message.chat.id, token);
         const work = async () => {
             const notify = async text => {
                 if (callback) {
@@ -130,7 +131,27 @@ async function telegramUpdate(req) {
             logEvent('update_completed', { updateId: req.body.update_id, from: stateBefore,
                 to: session.state?.state, durationMs: Date.now() - started });
         };
-        return conversationContext.run(context, () => attendance ? recoverConversation(session, work) : work());
+        return conversationContext.run(context, async () => {
+            try {
+                return await recoverConversation(session, work);
+            } catch (error) {
+                const reason = failureReason(error);
+                if (error.effect === 'queued') {
+                    processCommandQueue();
+                    await sendErrorNotice(message.chat.id,
+                        `Falló el aviso de recepción: ${reason}. Tu solicitud quedó en cola; ese fallo no cancela su procesamiento. No la repitas.`, token);
+                    return;
+                }
+                if (error.effect) {
+                    await sendErrorNotice(message.chat.id,
+                        `Hubo un problema: ${reason}. La operación ya comenzó y no se repetirá automáticamente. Revisa el resultado antes de volver a enviarla.`, token);
+                    return;
+                }
+                await sendErrorNotice(message.chat.id,
+                    `No pude continuar: ${reason}. Este intento no llegó a procesarse. Se habilitó el reintento automático; si no ves la pregunta, vuelve a enviar el comando original.`, token);
+                throw error;
+            }
+        });
     });
 }
 

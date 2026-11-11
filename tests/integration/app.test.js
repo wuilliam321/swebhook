@@ -8,6 +8,8 @@ jest.mock('../../src/api/asistencia', () => ({ callAsistenciaAPI: jest.fn() }));
 jest.mock('../../src/api/spending', () => ({ callSpendingAPI: jest.fn() }));
 jest.mock('../../src/api/inventory');
 jest.mock('../../src/api/pagoMovil');
+jest.mock('../../src/expense', () => ({ ...jest.requireActual('../../src/expense'), extractExpense: jest.fn() }));
+jest.mock('../../src/api/sheetsExpenses', () => ({ recordExpense: jest.fn() }));
 
 const axios = require('axios').default;
 const app = require('../../src/app');
@@ -16,8 +18,11 @@ const reimbursement = require('../../src/api/reimbursement');
 const { getReminders } = require('../../src/api/firebase');
 const { callAsistenciaAPI } = require('../../src/api/asistencia');
 const { callSpendingAPI } = require('../../src/api/spending');
-const { callSalesReportAPI, callDepositoLookupAPI } = require('../../src/api/inventory');
-const { callCierreAPI } = require('../../src/api/pagoMovil');
+const { callSalesReportAPI, callDepositoLookupAPI, callProductLookupAPI } = require('../../src/api/inventory');
+const { callCierreAPI, callPagoMovilAPI, callCasheaAbonosAPI } = require('../../src/api/pagoMovil');
+const { pendingNotices, sentReferences } = require('../../src/api/errorNotices');
+const { extractExpense } = require('../../src/expense');
+const { recordExpense } = require('../../src/api/sheetsExpenses');
 const { commandQueue, getCurrentJob } = require('../../src/queue');
 const handler = app._router.stack.find(layer => layer.route?.path === '/telegram').route.stack[0].handle;
 let sequence;
@@ -43,6 +48,9 @@ beforeEach(async () => {
   await flush();
   expect(getCurrentJob()).toBeNull();
   sessions.clear(); updates.clear(); commandQueue.length = 0;
+  for (const notice of pendingNotices.values()) clearTimeout(notice.timer);
+  pendingNotices.clear();
+  sentReferences.clear();
   sequence = 0; sent = [];
   jest.clearAllMocks();
   axios.post.mockImplementation(async (url, payload) => {
@@ -60,6 +68,9 @@ beforeEach(async () => {
   callSalesReportAPI.mockResolvedValue({ success: true, data: 'Reporte' });
   callDepositoLookupAPI.mockResolvedValue({ success: true, data: {} });
   callCierreAPI.mockResolvedValue({ success: true, message: 'Cierre' });
+  callPagoMovilAPI.mockResolvedValue({ success: true, message: 'Consulta' });
+  callCasheaAbonosAPI.mockResolvedValue({ success: true, message: '' });
+  callProductLookupAPI.mockResolvedValue({ success: true, data: {} });
 });
 
 test('tres personas completan asistencia simultáneamente sin compartir estado', async () => {
@@ -238,7 +249,7 @@ test('timeout inicial permite reintentar el mismo update sin estado fantasma', a
   expect(session().state.state).toBe('WAITING_FOR_EMPLOYEE_NAME');
   expect(session().prompt.messageId).toBeDefined();
   expect(await dispatch(body)).toBe(200);
-  expect(sent).toHaveLength(1);
+  expect(sent.filter(message => message.reply_markup?.inline_keyboard)).toHaveLength(1);
 });
 
 test('fallo de pregunta intermedia restaura recordatorios y acepta el mismo callback', async () => {
@@ -322,5 +333,181 @@ test('confirmaciones simultáneas solo responden un recordatorio; fallo API no a
   callAsistenciaAPI.mockResolvedValueOnce({ success: false, message: 'API unavailable' });
   await click(0); await flush();
   expect(session(2).state).toBe(other);
-  expect(sent.some(message => message.text.includes('API unavailable'))).toBe(true);
+  expect(sent.some(message => message.text.includes('No pude confirmar el registro de asistencia'))).toBe(true);
+});
+
+
+function failNextSend() {
+  const post = axios.post.getMockImplementation();
+  let failed = false;
+  axios.post.mockImplementation(async (url, payload) => {
+    if (!failed && url.endsWith('/sendMessage')) {
+      failed = true;
+      throw Object.assign(new Error('synthetic timeout'), { code: 'ECONNABORTED', config: { timeout: 15000 } });
+    }
+    return post(url, payload);
+  });
+}
+
+const requestBody = (text, extra = {}) => ({ update_id: 1000, message: {
+  message_id: 1001, from: { id: 1 }, chat: { id: -100, type: 'supergroup' }, text, ...extra
+} });
+
+test.each(['/gasto', '/gasto_history', '/report', '/consulta_codigo', '/deposito', '/outfit', '/solicitar_reembolso'])(
+  'recupera timeout inicial de %s y avisa sin reemplazar la pregunta', async command => {
+    failNextSend();
+    const body = requestBody(command);
+    expect(await dispatch(body)).toBe(500);
+    expect(session().state).toBeUndefined();
+    expect(session().prompt).toBeUndefined();
+    expect(updates.has('123456:1000')).toBe(false);
+    expect(sent.at(-1).text).toContain('Telegram no respondió a tiempo');
+    expect(sent.at(-1).text).toContain('Referencia: 1000');
+    expect(sent.at(-1).reply_markup).toBeUndefined();
+    expect(await dispatch(body)).toBe(200);
+    expect(session().prompt.messageId).toBeDefined();
+    const sentCount = sent.length;
+    expect(await dispatch(body)).toBe(200);
+    expect(sent).toHaveLength(sentCount);
+  });
+
+test.each([
+  ['/pagomovil_wuilliam', () => callPagoMovilAPI],
+  ['/cierre_wuilliam', () => callCierreAPI],
+  ['/cashea_abonos', () => callCasheaAbonosAPI]
+])('fallo del aviso de %s no bloquea ni duplica la cola', async (command, api) => {
+  failNextSend();
+  const body = requestBody(command);
+  expect(await dispatch(body)).toBe(200);
+  for (let i = 0; i < 4; i++) await flush();
+  expect(api()).toHaveBeenCalledTimes(1);
+  expect(commandQueue).toHaveLength(0);
+  expect(getCurrentJob()).toBeNull();
+  expect(sent.some(message => message.text.includes('No la repitas'))).toBe(true);
+  expect(await dispatch(body)).toBe(200);
+  expect(api()).toHaveBeenCalledTimes(1);
+});
+
+test('gasto encolado continúa una sola vez aunque falle el aviso', async () => {
+  await send('/gasto');
+  const body = requestBody('10 pesos en prueba ficticia', { reply_to_message: { message_id: session().prompt.messageId } });
+  failNextSend();
+  expect(await dispatch(body)).toBe(200);
+  for (let i = 0; i < 4; i++) await flush();
+  expect(callSpendingAPI).toHaveBeenCalledTimes(1);
+  expect(commandQueue).toHaveLength(0);
+  expect(await dispatch(body)).toBe(200);
+  expect(callSpendingAPI).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ['/report', '0', () => callSalesReportAPI],
+  ['/consulta_codigo', 'SYNTHETIC', () => callProductLookupAPI],
+  ['/deposito', 'SYNTHETIC', () => callDepositoLookupAPI]
+])('%s restaura la pregunta tras fallar el aviso y reintenta una vez', async (command, input, api) => {
+  await send(command);
+  const before = structuredClone(session().state);
+  const prompt = structuredClone(session().prompt);
+  const body = requestBody(input, { reply_to_message: { message_id: prompt.messageId } });
+  failNextSend();
+  expect(await dispatch(body)).toBe(500);
+  expect(session().state).toEqual(before);
+  expect(session().prompt).toEqual(prompt);
+  expect(api()).not.toHaveBeenCalled();
+  expect(await dispatch(body)).toBe(200);
+  for (let i = 0; i < 4; i++) await flush();
+  expect(api()).toHaveBeenCalledTimes(1);
+  expect(await dispatch(body)).toBe(200);
+  expect(api()).toHaveBeenCalledTimes(1);
+});
+
+test('reembolso no queda procesando si falla el aviso de foto y acepta el reintento', async () => {
+  reimbursement.downloadPhoto.mockResolvedValue(Buffer.from('synthetic'));
+  reimbursement.getOptions.mockResolvedValue({ reasons: ['Taxi'], accounts: ['BS Pago Movil'], employees: ['Ana'] });
+  reimbursement.uploadReceipt.mockResolvedValue('https://synthetic/receipt');
+  reimbursement.extractReceipt.mockResolvedValue({ date: '01/01/2026', amount: 10, currency: 'USD', reason: 'Taxi' });
+  await send('/solicitar_reembolso');
+  const prompt = structuredClone(session().prompt);
+  const body = requestBody('', { photo: [{ file_id: 'synthetic' }], reply_to_message: { message_id: prompt.messageId } });
+  failNextSend();
+  expect(await dispatch(body)).toBe(500);
+  expect(session().state.state).toBe('WAITING_REIMBURSEMENT_PHOTO');
+  expect(session().prompt).toEqual(prompt);
+  expect(reimbursement.downloadPhoto).not.toHaveBeenCalled();
+  expect(await dispatch(body)).toBe(200);
+  for (let i = 0; i < 6; i++) await flush();
+  expect(reimbursement.downloadPhoto).toHaveBeenCalledTimes(1);
+  expect(session().state.state).toBe('WAITING_REIMBURSEMENT_EMPLOYEE');
+  expect(await dispatch(body)).toBe(200);
+  expect(reimbursement.downloadPhoto).toHaveBeenCalledTimes(1);
+});
+
+test.each([true, false])('gasto estructurado distingue guardado confirmado e incierto (saved=%s)', async saved => {
+  extractExpense.mockImplementation(async () => ({ amount: 10, currency: 'USD', reason: 'Suministros',
+    account: '$ Efectivo', date: '2026-01-01', description: 'Prueba ficticia', store: 'Ambas' }));
+  if (saved) recordExpense.mockResolvedValueOnce({ row: 1 });
+  else recordExpense.mockRejectedValueOnce(Object.assign(new Error('synthetic write timeout'), { code: 'ETIMEDOUT' }));
+  const body = requestBody('/gasto_history prueba ficticia');
+  if (saved) failNextSend();
+  expect(await dispatch(body)).toBe(200);
+  expect(recordExpense).toHaveBeenCalledTimes(1);
+  expect(session().state).toBeUndefined();
+  expect(sent.at(-1).text).toContain(saved ? 'Tu gasto sí quedó registrado' : 'No pude confirmar si el gasto se guardó');
+  expect(await dispatch(body)).toBe(200);
+  expect(recordExpense).toHaveBeenCalledTimes(1);
+});
+
+test.each([true, false])('reembolso distingue confirmación perdida y guardado incierto (saved=%s)', async saved => {
+  reimbursement.downloadPhoto.mockResolvedValue(Buffer.from('synthetic'));
+  reimbursement.getOptions.mockResolvedValue({ reasons: ['Taxi'], accounts: ['BS Pago Movil'], employees: ['Ana'] });
+  reimbursement.uploadReceipt.mockResolvedValue('https://synthetic/receipt');
+  reimbursement.extractReceipt.mockResolvedValue({ date: '01/01/2026', amount: 10, currency: 'USD', reason: 'Taxi' });
+  if (saved) reimbursement.appendReimbursement.mockResolvedValueOnce();
+  else reimbursement.appendReimbursement.mockRejectedValueOnce(Object.assign(new Error('synthetic timeout'), { code: 'ETIMEDOUT' }));
+  await send('/solicitar_reembolso');
+  await reply('', 1, { photo: [{ file_id: 'synthetic' }] });
+  for (let i = 0; i < 4; i++) await flush();
+  const prompt = session().prompt;
+  const body = { update_id: 1000, callback_query: { id: 'save', from: { id: 1 },
+    message: { chat: { id: -100, type: 'supergroup' }, message_id: prompt.messageId }, data: `flow:${prompt.id}:0` } };
+  const post = axios.post.getMockImplementation();
+  axios.post.mockImplementation(async (url, payload) => {
+    if (saved && url.endsWith('/sendMessage') && payload.text.startsWith('Reembolso de')) {
+      throw Object.assign(new Error('synthetic timeout'), { code: 'ECONNABORTED' });
+    }
+    return post(url, payload);
+  });
+  expect(await dispatch(body)).toBe(200);
+  for (let i = 0; i < 4; i++) await flush();
+  expect(reimbursement.appendReimbursement).toHaveBeenCalledTimes(1);
+  expect(sent.at(-1).text).toContain(saved ? 'Tu solicitud de reembolso sí quedó registrada' : 'No pude confirmar el registro del reembolso');
+  expect(await dispatch(body)).toBe(200);
+  expect(reimbursement.appendReimbursement).toHaveBeenCalledTimes(1);
+});
+
+test('fallo de selección de empleada conserva la extracción concurrente y permite reintentar', async () => {
+  let finishExtraction;
+  reimbursement.downloadPhoto.mockResolvedValue(Buffer.from('synthetic'));
+  reimbursement.getOptions.mockResolvedValue({ reasons: ['Taxi'], accounts: ['BS Pago Movil'], employees: ['Ana'] });
+  reimbursement.uploadReceipt.mockResolvedValue('https://synthetic/receipt');
+  reimbursement.extractReceipt.mockImplementationOnce(() => new Promise(resolve => { finishExtraction = resolve; }));
+  reimbursement.appendReimbursement.mockResolvedValueOnce();
+  await send('/solicitar_reembolso');
+  await reply('', 1, { photo: [{ file_id: 'synthetic' }] });
+  for (let i = 0; i < 4; i++) await flush();
+  const original = session().state;
+  const prompt = session().prompt;
+  const body = { update_id: 1000, callback_query: { id: 'employee', from: { id: 1 },
+    message: { chat: { id: -100, type: 'supergroup' }, message_id: prompt.messageId }, data: `flow:${prompt.id}:0` } };
+  failNextSend();
+  expect(await dispatch(body)).toBe(500);
+  expect(session().state).toBe(original);
+  expect(session().state.draft.employee).toBeUndefined();
+  finishExtraction({ date: '01/01/2026', amount: 10, currency: 'USD', reason: 'Taxi' });
+  for (let i = 0; i < 4; i++) await flush();
+  expect(session().state.extractionPending).toBe(false);
+  expect(session().state.draft.amount).toBe(10);
+  expect(await dispatch(body)).toBe(200);
+  for (let i = 0; i < 4; i++) await flush();
+  expect(reimbursement.appendReimbursement).toHaveBeenCalledTimes(1);
 });

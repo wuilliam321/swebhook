@@ -3,6 +3,7 @@ const { callSpendingAPI } = require('../../src/api/spending');
 const { callAsistenciaAPI } = require('../../src/api/asistencia');
 const { sendTelegramMessage } = require('../../src/api/telegram');
 const { callCierreAPI, callPagoMovilAPI } = require('../../src/api/pagoMovil');
+const { sendErrorNotice } = require('../../src/api/errorNotices');
 
 jest.mock('../../src/api/spending');
 jest.mock('../../src/api/asistencia');
@@ -10,6 +11,7 @@ jest.mock('../../src/api/telegram');
 jest.mock('../../src/api/pagoMovil');
 jest.mock('../../src/api/inventory');
 jest.mock('../../src/outfit');
+jest.mock('../../src/api/errorNotices', () => ({ ...jest.requireActual('../../src/api/errorNotices'), sendErrorNotice: jest.fn().mockResolvedValue() }));
 
 jest.mock('../../src/config', () => ({ ...jest.requireActual('../../src/config'), TELEGRAM_TOKEN: 'test-token' }));
 
@@ -51,9 +53,11 @@ describe('Unit Tests: Queue Processing and Duplicate Detection', () => {
         callAsistenciaAPI.mockResolvedValue({ success, message: success ? 'Registrada' : 'API Error' });
         await processCommandQueue();
         expect(callAsistenciaAPI).toHaveBeenCalledWith('Maryory', 'History', '🌙 Salida', 'Cierra: Sí');
-        expect(sendTelegramMessage).toHaveBeenCalledWith(123,
-            success ? attendanceSummary : '❌ Error registrando asistencia: API Error', expect.any(String));
-        if (!success) expect(sendTelegramMessage).not.toHaveBeenCalledWith(123, attendanceSummary, expect.any(String));
+        if (success) expect(sendTelegramMessage).toHaveBeenCalledWith(123, attendanceSummary, expect.any(String));
+        else {
+            expect(sendErrorNotice).toHaveBeenCalledWith(123, expect.stringContaining('No pude confirmar el registro de asistencia'), expect.any(String), undefined);
+            expect(sendTelegramMessage).not.toHaveBeenCalledWith(123, attendanceSummary, expect.any(String));
+        }
     });
 
     test('should process gasto job successfully', async () => {
@@ -88,7 +92,7 @@ describe('Unit Tests: Queue Processing and Duplicate Detection', () => {
 
         await processCommandQueue();
 
-        expect(sendTelegramMessage).toHaveBeenCalledWith(123, expect.stringContaining('Error registrando gasto'), expect.any(String));
+        expect(sendErrorNotice).toHaveBeenCalledWith(123, expect.stringContaining('No pude confirmar el registro del gasto'), expect.any(String), undefined);
     });
 
     test('isJobDuplicate should identify duplicates in queue', () => {

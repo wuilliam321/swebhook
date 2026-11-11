@@ -21,16 +21,34 @@ function errorDetails(error) {
 }
 
 async function recoverConversation(session, work) {
+  const originalState = session.state;
   const snapshot = structuredClone({ state: session.state, prompt: session.prompt, operationId: session.operationId });
   try {
     return await work();
   } catch (error) {
+    const effect = conversationContext.getStore()?.effect;
+    if (effect) {
+      error.effect = effect;
+      error.retryableUpdate = false;
+      logEvent('update_effects_started', { effect, ...errorDetails(error) });
+      throw error;
+    }
     const failedState = session.state?.state;
+    const sameOperation = session.operationId === snapshot.operationId;
     Object.assign(session, snapshot);
+    if (originalState?.extractionPending || originalState?.state === 'PROCESSING_REIMBURSEMENT') {
+      session.state = sameOperation ? originalState : undefined;
+      if (!sameOperation) session.prompt = undefined;
+    }
     error.retryableUpdate = true;
     logEvent('conversation_restored', { from: failedState, to: session.state?.state, ...errorDetails(error) });
     throw error;
   }
+}
+
+function markEffect(effect) {
+  const context = conversationContext.getStore();
+  if (context) context.effect = effect;
 }
 
 function sessionFor(bot, chatId, userId) {
@@ -108,4 +126,4 @@ async function serial(session, work) {
 }
 
 module.exports = { conversationContext, sessions, updates, sessionFor, stateView, newOperation,
-  promptFor, logEvent, errorDetails, recoverConversation, rememberUpdate, serial };
+  promptFor, logEvent, errorDetails, recoverConversation, markEffect, rememberUpdate, serial };

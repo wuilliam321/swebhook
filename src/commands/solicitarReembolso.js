@@ -1,5 +1,7 @@
 const { sendTelegramMessage, sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
 const { downloadPhoto, getOptions, extractReceipt, uploadReceipt, appendReimbursement, normalizeDate, normalizeAmount, canonical } = require('../api/reimbursement');
+const { markEffect, logEvent, errorDetails } = require('../conversations');
+const { sendErrorNotice, failureReason } = require('../api/errorNotices');
 
 const commandName = '/solicitar_reembolso';
 const waitingPhoto = 'WAITING_REIMBURSEMENT_PHOTO';
@@ -47,19 +49,24 @@ async function advance(chatId, state, chatStates) {
         return;
     }
     state.state = processing;
+    markEffect('background');
     saveReimbursement(chatId, state, chatStates).catch(() => console.error(JSON.stringify({ event: 'reimbursement_notification_failed' })));
 }
 
 async function saveReimbursement(chatId, state, chatStates) {
     const { draft, botToken } = state;
+    let saved = false;
     try {
         await appendReimbursement(draft, state.imageUrl);
+        saved = true;
         if (chatStates[chatId] === state) delete chatStates[chatId];
         await sendTelegramMessage(chatId, `Reembolso de ${draft.employee}: recibimos tu solicitud. Te haremos el reembolso a la brevedad posible.`, botToken);
     } catch (error) {
         if (chatStates[chatId] === state) delete chatStates[chatId];
-        console.error('Error guardando reembolso:', error.response?.data || error.message);
-        await sendTelegramMessage(chatId, 'No pude confirmar el registro. Revisa la planilla antes de enviar otra solicitud.', botToken);
+        logEvent('reimbursement_save_failed', { saved, ...errorDetails(error) });
+        const outcome = saved ? 'Tu solicitud de reembolso sí quedó registrada. Falló la confirmación.'
+            : 'No pude confirmar el registro del reembolso. Revisa la planilla antes de enviar otra solicitud.';
+        await sendErrorNotice(chatId, `${outcome} ${failureReason(error, 'el servicio de registro')}. No se repetirá automáticamente.`, botToken);
     }
 }
 
@@ -86,13 +93,8 @@ async function processPhoto(chatId, fileId, caption, botToken, chatStates) {
     } catch (error) {
         if (chatStates[chatId] !== (state || pendingState)) return;
         chatStates[chatId] = { state: waitingPhoto, botToken };
-        console.error('Error procesando reembolso:', error.response?.data || error.message);
-        const message = `No pude procesar el comprobante: ${error.message}. Envía otra foto.`;
-        if (state?.state === 'WAITING_REIMBURSEMENT_EMPLOYEE') {
-            await removeTelegramKeyboard(chatId, message, botToken);
-        } else {
-            await sendTelegramMessage(chatId, message, botToken);
-        }
+        logEvent('reimbursement_processing_failed', errorDetails(error));
+        await sendErrorNotice(chatId, `No pude procesar el comprobante: ${failureReason(error)}. No se registró una solicitud de reembolso. Vuelve a enviar /solicitar_reembolso y adjunta la foto.`, botToken);
     }
 }
 
@@ -117,8 +119,9 @@ module.exports = {
                 await sendTelegramMessage(chatId, 'Adjunta una foto del comprobante.', token);
                 return;
             }
-            current.state = processing;
             await sendTelegramMessage(chatId, 'Comprobante recibido. Estoy registrando la solicitud.', token);
+            current.state = processing;
+            markEffect('background');
             processPhoto(chatId, photo.file_id, req.body.message.caption, token, chatStates)
                 .catch(() => console.error(JSON.stringify({ event: 'reimbursement_notification_failed' })));
             return;
@@ -147,14 +150,15 @@ module.exports = {
                 return;
             }
         } else if (current.state === 'WAITING_REIMBURSEMENT_EMPLOYEE') {
-            current.draft.employee = canonical(userCommand, current.employees);
-            if (!current.draft.employee) {
+            const employee = canonical(userCommand, current.employees);
+            if (!employee) {
                 await sendTelegramMessage(chatId, 'Selecciona una empleada(o) de la lista.', token);
                 return;
             }
-            current.state = processing;
             await removeTelegramKeyboard(chatId, 'Registrando solicitud.', token);
             if (chatStates[chatId] !== current) return;
+            current.draft.employee = employee;
+            current.state = processing;
             current.employeeReady = true;
         }
         await advance(chatId, current, chatStates);

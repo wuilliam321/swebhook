@@ -1,4 +1,5 @@
-const { conversationContext, errorDetails } = require('./conversations');
+const { conversationContext, errorDetails, markEffect } = require('./conversations');
+const { sendErrorNotice, failureReason } = require('./api/errorNotices');
 const { TELEGRAM_TOKEN } = require('./config');
 const { callPagoMovilAPI, callCierreAPI, callCasheaAbonosAPI } = require('./api/pagoMovil');
 const { callSpendingAPI } = require('./api/spending');
@@ -11,6 +12,7 @@ const commandQueue = [];
 function enqueueJob(job) {
     const context = conversationContext.getStore();
     commandQueue.push(structuredClone({ ...job, operationId: context?.operationId, userId: context?.userId }));
+    markEffect('queued');
 }
 let currentJob = null;
 
@@ -115,6 +117,15 @@ async function processCommandQueue() {
 
     const { chatId, originalMessageText, jobType, botToken } = currentJob;
     const token = botToken || TELEGRAM_TOKEN; // Use provided token or default
+    let completed = false;
+    const notifyFailure = result => {
+        const writes = ['gasto', 'asistencia'].includes(jobType);
+        const outcome = jobType === 'gasto' ? 'No pude confirmar el registro del gasto.'
+            : jobType === 'asistencia' ? 'No pude confirmar el registro de asistencia.' : 'No pude completar la consulta.';
+        const action = writes ? 'Revisa la planilla antes de repetir la solicitud; no se repetirá automáticamente.'
+            : 'Puedes volver a enviar el comando.';
+        return sendErrorNotice(chatId, `${outcome} ${failureReason(new Error(result.message), 'el servicio de procesamiento')}. ${action}`, token, currentJob.operationId);
+    };
 
     console.log(`Processing job for chatId ${chatId}: ${originalMessageText} (type: ${jobType || 'gasto'})`);
     console.log(JSON.stringify({ event: 'job_started', operationId: currentJob.operationId, userId: currentJob.userId, jobType }));
@@ -127,6 +138,7 @@ async function processCommandQueue() {
 
             if (result.success) {
                 console.log(`Job for ${originalMessageText} completed. message:`, result.message);
+                completed = true;
                 let output = result.message;
 
                 if (currentJob.isGroupChat) {
@@ -139,7 +151,7 @@ async function processCommandQueue() {
                 console.log(`Pagomovil search completed successfully for ${originalMessageText}`);
             } else {
                 // Error is already logged inside callPagoMovilAPI
-                await sendTelegramMessage(chatId, `❌ Error buscando pagomovil: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
 
@@ -150,10 +162,11 @@ async function processCommandQueue() {
 
             if (result.success) {
                 console.log(`Job for ${originalMessageText} completed. message:`, result.message);
+                completed = true;
                 await sendTelegramMessage(chatId, `🏦 *Cierre de Caja - BBVA Provincial*\n\n${result.message}`, token);
                 console.log(`Cierre calculation completed successfully for ${originalMessageText}`);
             } else {
-                await sendTelegramMessage(chatId, `❌ Error calculando cierre: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
 
@@ -163,9 +176,10 @@ async function processCommandQueue() {
 
             if (result.success) {
                 console.log(`Job for ${originalMessageText} completed. message:`, result.message);
+                completed = true;
                 await sendTelegramMessage(chatId, `✅ Gasto "${originalMessageText}" registrado con éxito! 💰`, token);
             } else {
-                await sendTelegramMessage(chatId, `❌ Error registrando gasto: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
 
@@ -175,11 +189,12 @@ async function processCommandQueue() {
             const result = await callSalesReportAPI(period);
 
             if (result.success) {
+                completed = true;
                 console.log(`Report job for ${originalMessageText} completed. data:`, result.data);
                 const reportText = (typeof result.data === 'string') ? result.data : (result.data.message || JSON.stringify(result.data, null, 2));
                 await sendTelegramMessage(chatId, `📊 Reporte generado:\n\n${reportText}`, token);
             } else {
-                await sendTelegramMessage(chatId, `❌ Error al generar el reporte: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
 
@@ -190,6 +205,7 @@ async function processCommandQueue() {
             const result = await callOutfitGeneratorAPI(pieces, currentJob.userPreferences);
 
             if (result.success) {
+                completed = true;
                 const normalizedImage = result.image ? normalizeBase64Image(result.image) : null;
                 const captionText = summary ? `✨ Atuendo listo\nPiezas: ${summary}` : '✨ Atuendo listo';
 
@@ -203,7 +219,7 @@ async function processCommandQueue() {
                 }
                 console.log(`Outfit job for ${originalMessageText} completed.`);
             } else {
-                await sendTelegramMessage(chatId, `❌ Error al generar el atuendo: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
 
@@ -214,11 +230,12 @@ async function processCommandQueue() {
             const result = await callProductLookupAPI(code);
 
             if (result.success) {
+                completed = true;
                 console.log(`Product lookup job for ${originalMessageText} completed. data:`, result.data);
                 await sendProductDetails(chatId, JSON.stringify(result.data), token, isGroupChat);
                 console.log(`Product lookup completed successfully for ${originalMessageText}`);
             } else {
-                await sendTelegramMessage(chatId, `❌ Error al consultar el producto: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
 
@@ -228,6 +245,7 @@ async function processCommandQueue() {
             const result = await callCasheaAbonosAPI(account);
 
             if (result.success) {
+                completed = true;
                 const { total, count, lines } = parseCasheaTotal(result.message);
                 const formattedTotal = total.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 const detail = lines.map(l => {
@@ -244,7 +262,7 @@ async function processCommandQueue() {
                 await sendTelegramMessage(chatId, responseMsg, token);
                 console.log(`Cashea abonos completed for ${account}: ${count} txns, total ${total}`);
             } else {
-                await sendTelegramMessage(chatId, `❌ Error consultando cashea abonos: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
 
@@ -255,11 +273,12 @@ async function processCommandQueue() {
             const result = await callDepositoLookupAPI(code);
 
             if (result.success) {
+                completed = true;
                 console.log(`Deposito lookup job for ${originalMessageText} completed. data:`, result.data);
                 await sendDepositoDetails(chatId, JSON.stringify(result.data), token, isGroupChat);
                 console.log(`Deposito lookup completed successfully for ${originalMessageText}`);
             } else {
-                await sendTelegramMessage(chatId, `❌ Error al consultar depósito: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
 
@@ -269,6 +288,7 @@ async function processCommandQueue() {
             const result = await callAsistenciaAPI(nombre, tienda, accion, reminders);
 
             if (result.success) {
+                completed = true;
                 console.log(`Asistencia job for ${nombre} completed.`);
                 console.log(JSON.stringify({ event: 'attendance_saved', chatId, operationId: currentJob.operationId,
                     userId: currentJob.userId }));
@@ -277,24 +297,20 @@ async function processCommandQueue() {
                 } catch (error) {
                     console.error(JSON.stringify({ event: 'attendance_confirmation_failed', chatId,
                         operationId: currentJob.operationId, userId: currentJob.userId, ...errorDetails(error) }));
+                    await sendErrorNotice(chatId, `Tu asistencia sí quedó registrada. Falló la confirmación: ${failureReason(error)}. No necesitas repetirla.`, token, currentJob.operationId);
                 }
             } else {
-                await sendTelegramMessage(chatId, `❌ Error registrando asistencia: ${result.message}`, token);
+                await notifyFailure(result);
             }
         }
     } catch (errorOutcome) {
         console.error(`Job for ${originalMessageText} failed:`, errorOutcome);
 
-        if (jobType === 'gasto') {
-            // Handle gasto errors as before
-            if (errorOutcome.error && errorOutcome.error.message) {
-                await sendTelegramMessage(chatId, `❌ Error al registrar "${originalMessageText}": ${errorOutcome.error.message}`, token);
-            } else if (errorOutcome.stderr) {
-                await sendTelegramMessage(chatId, `⚠️ Error (stderr) al registrar "${originalMessageText}": ${errorOutcome.stderr}`, token);
-            } else {
-                await sendTelegramMessage(chatId, `❌ Error desconocido al registrar "${originalMessageText}"`, token);
-            }
-        }
+        // Handle gasto errors as before
+        const outcome = completed
+            ? (jobType === 'gasto' ? 'Tu gasto sí quedó registrado.' : 'Tu solicitud sí terminó correctamente.')
+            : 'No pude confirmar el resultado. Revisa el registro antes de volver a enviar la solicitud.';
+        await sendErrorNotice(chatId, `${outcome} ${failureReason(errorOutcome)}. No se repetirá automáticamente.`, token, currentJob.operationId);
     } finally {
         currentJob = null;
         // Trigger processing for the next item in the queue, if any.

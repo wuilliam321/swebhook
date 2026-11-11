@@ -2,6 +2,8 @@ const { enqueueJob, processCommandQueue, isJobDuplicate } = require('../queue');
 const { sendTelegramMessage, sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
 const { REASONS, ACCOUNTS, extractExpense, validateExpense, questionFor, mergeDraft } = require('../expense');
 const { recordExpense } = require('../api/sheetsExpenses');
+const { markEffect, logEvent, errorDetails } = require('../conversations');
+const { sendErrorNotice, failureReason } = require('../api/errorNotices');
 
 const STORE_COMMANDS = { history: 'History', rodeo: 'Rodeo' };
 
@@ -33,6 +35,8 @@ async function handleStructuredExpense(context) {
     const state = chatStates[chatId];
     if (!state || state.state !== 'WAITING_FOR_STRUCTURED_EXPENSE') return false;
     if (!userCommand) { await sendTelegramMessage(chatId, '❗ Envía el gasto como texto.', state.botToken || botToken); return true; }
+    let writeStarted = false;
+    let saved = false;
     try {
         const selectedReason = state.pendingField === 'motivo' && REASONS.includes(userCommand) ? userCommand : null;
         const selectedAccount = state.pendingField === 'cuenta' && ACCOUNTS.includes(userCommand) ? userCommand : null;
@@ -51,12 +55,19 @@ async function handleStructuredExpense(context) {
             }
             return true;
         }
+        writeStarted = true;
+        markEffect('write_started');
         await recordExpense(draft, state.targetStore);
+        saved = true;
         delete chatStates[chatId];
         await removeTelegramKeyboard(chatId, '✅ Gasto registrado con éxito.', state.botToken || botToken);
     } catch (error) {
-        console.error('Error registrando gasto estructurado:', error.response ? error.response.data : error.message);
-        await sendTelegramMessage(chatId, `❌ Error registrando gasto: ${error.message}`, state.botToken || botToken);
+        if (!writeStarted) throw error;
+        delete chatStates[chatId];
+        logEvent('expense_write_failed', { saved, ...errorDetails(error) });
+        const outcome = saved ? 'Tu gasto sí quedó registrado. Falló la confirmación.'
+            : 'No pude confirmar si el gasto se guardó. Revisa la planilla antes de volver a enviarlo.';
+        await sendErrorNotice(chatId, `${outcome} ${failureReason(error, 'el servicio de registro')}. No se repetirá automáticamente.`, state.botToken || botToken);
     }
     return true;
 }

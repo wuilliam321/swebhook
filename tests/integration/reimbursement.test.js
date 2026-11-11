@@ -174,6 +174,8 @@ test('pide datos ausentes y no confirma cuando Sheets falla', async () => {
     const write = axios.post.mock.calls.find(([url]) => url.includes(':batchUpdate'));
     expect(write[1].requests.map(({ updateCells }) => updateCells.start.columnIndex)).toEqual([0, 4, 5, 6, 10, 11]);
     expect(chatStates[chatId]).toBeUndefined();
-    expect(sendTelegramMessage).toHaveBeenCalledWith(chatId, expect.stringContaining('No pude confirmar'), 'telegram-token');
+    expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/sendMessage'),
+        expect.objectContaining({ chat_id: chatId, text: expect.stringContaining('No pude confirmar el registro del reembolso') }),
+        { timeout: 15000 });
     expect(removeTelegramKeyboard).toHaveBeenCalledTimes(1);
 });

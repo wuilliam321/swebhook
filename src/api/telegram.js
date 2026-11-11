@@ -65,7 +65,7 @@ async function sendConversationMessage(chatId, message, keyboard, token, remove 
         return { success: true, messageId: response.data.result.message_id };
     } catch (error) {
         logEvent('telegram_failed', { method: 'sendMessage', ...errorDetails(error) });
-        throw new Error('No se pudo enviar la pregunta a Telegram', { cause: error });
+        throw Object.assign(new Error('No se pudo enviar la pregunta a Telegram', { cause: error }), { service: 'telegram' });
     }
 }
 
