@@ -223,6 +223,69 @@ test('update duplicado en curso comparte ejecución', async () => {
   expect(sent).toHaveLength(1);
 });
 
+test('timeout inicial permite reintentar el mismo update sin estado fantasma', async () => {
+  const post = axios.post.getMockImplementation();
+  axios.post.mockRejectedValueOnce(Object.assign(new Error('synthetic timeout'), {
+    code: 'ECONNABORTED', config: { timeout: 15000 }
+  }));
+  const body = { update_id: 100, message: { message_id: 101, from: { id: 1 }, chat: { id: -100 }, text: '/marcar' } };
+  expect(await dispatch(body)).toBe(500);
+  expect(session().state).toBeUndefined();
+  expect(session().prompt).toBeUndefined();
+  expect(updates.has('123456:100')).toBe(false);
+  axios.post.mockImplementation(post);
+  expect(await dispatch(body)).toBe(200);
+  expect(session().state.state).toBe('WAITING_FOR_EMPLOYEE_NAME');
+  expect(session().prompt.messageId).toBeDefined();
+  expect(await dispatch(body)).toBe(200);
+  expect(sent).toHaveLength(1);
+});
+
+test('fallo de pregunta intermedia restaura recordatorios y acepta el mismo callback', async () => {
+  await send('/marcar');
+  for (const index of [0, 0, 3, 0]) await click(index);
+  const before = structuredClone(session().state);
+  const prompt = structuredClone(session().prompt);
+  const body = { update_id: 1000, callback_query: { id: 'retry', from: { id: 1 },
+    message: { chat: { id: -100, type: 'supergroup' }, message_id: prompt.messageId }, data: `flow:${prompt.id}:0` } };
+  const post = axios.post.getMockImplementation();
+  axios.post.mockImplementation(async (url, payload) => {
+    if (url.endsWith('/sendMessage')) throw Object.assign(new Error('timeout'), { code: 'ECONNABORTED' });
+    return post(url, payload);
+  });
+  expect(await dispatch(body)).toBe(500);
+  expect(session().state).toEqual(before);
+  expect(session().prompt).toEqual(prompt);
+  axios.post.mockImplementation(post);
+  expect(await dispatch(body)).toBe(200);
+  expect(session().state.pendingReminders).toEqual(['Luces']);
+  expect(session().state.reminderAnswers).toEqual(['Caja, Si, confirmo']);
+  expect(await dispatch(body)).toBe(200);
+  expect(session().state.reminderAnswers).toHaveLength(1);
+});
+
+test.each(['progress', 'confirmation'])('fallo de notificación %s no pierde ni duplica asistencia', async stage => {
+  await send('/marcar');
+  for (const index of [0, 0, 0]) await click(index);
+  const prompt = session().prompt;
+  const body = { update_id: 1000, callback_query: { id: 'finish', from: { id: 1 },
+    message: { chat: { id: -100, type: 'supergroup' }, message_id: prompt.messageId }, data: `flow:${prompt.id}:1` } };
+  const post = axios.post.getMockImplementation();
+  axios.post.mockImplementation(async (url, payload) => {
+    if (url.endsWith('/sendMessage') && payload.text.startsWith(stage === 'progress' ? '⏳' : '✅')) {
+      throw Object.assign(new Error('timeout'), { code: 'ECONNABORTED' });
+    }
+    return post(url, payload);
+  });
+  expect(await dispatch(body)).toBe(200);
+  for (let i = 0; i < 4; i++) await flush();
+  expect(session().state).toBeUndefined();
+  expect(await dispatch(body)).toBe(200);
+  await flush();
+  expect(callAsistenciaAPI).toHaveBeenCalledTimes(1);
+  expect(commandQueue).toHaveLength(0);
+});
+
 test('comandos report, deposito y cierre conservan trabajo API', async () => {
   await send('/report'); await reply('3'); await flush();
   expect(callSalesReportAPI).toHaveBeenCalledWith('3');

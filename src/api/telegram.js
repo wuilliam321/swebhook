@@ -1,4 +1,4 @@
-const { conversationContext, promptFor, logEvent } = require('../conversations');
+const { conversationContext, promptFor, logEvent, errorDetails } = require('../conversations');
 const axios = require('axios').default;
 const { TELEGRAM_TOKEN, MOCK_TELEGRAM, PHONE_ID, GRAPH_API_TOKEN } = require('../config');
 const { escapeMarkdownV2 } = require('../utils');
@@ -11,7 +11,7 @@ async function updateTelegramPrompt(chatId, prompt, token) {
             chat_id: chatId, message_id: prompt.messageId, reply_markup: { inline_keyboard: [] }
         }, { timeout: 15000 });
     } catch (error) {
-        logEvent('keyboard_cleanup_failed', { code: error.code, status: error.response?.status });
+        logEvent('keyboard_cleanup_failed', { method: 'editMessageReplyMarkup', ...errorDetails(error) });
     }
 }
 
@@ -39,7 +39,18 @@ async function sendConversationMessage(chatId, message, keyboard, token, remove 
     }
     try {
         let response;
-        const send = () => axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload, { timeout: 15000 });
+        let attempt = 0;
+        const send = async () => {
+            const started = Date.now();
+            attempt++;
+            try {
+                return await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, payload, { timeout: 15000 });
+            } catch (error) {
+                logEvent('telegram_request_failed', { method: 'sendMessage', attempt,
+                    durationMs: Date.now() - started, ...errorDetails(error) });
+                throw error;
+            }
+        };
         try {
             response = await send();
         } catch (error) {
@@ -53,8 +64,8 @@ async function sendConversationMessage(chatId, message, keyboard, token, remove 
         logEvent('telegram_sent', { promptId: prompt?.id });
         return { success: true, messageId: response.data.result.message_id };
     } catch (error) {
-        logEvent('telegram_failed', { code: error.code, status: error.response?.status });
-        throw new Error('No se pudo enviar la pregunta a Telegram');
+        logEvent('telegram_failed', { method: 'sendMessage', ...errorDetails(error) });
+        throw new Error('No se pudo enviar la pregunta a Telegram', { cause: error });
     }
 }
 

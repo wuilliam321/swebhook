@@ -1,4 +1,4 @@
-const { conversationContext } = require('./conversations');
+const { conversationContext, errorDetails } = require('./conversations');
 const { TELEGRAM_TOKEN } = require('./config');
 const { callPagoMovilAPI, callCierreAPI, callCasheaAbonosAPI } = require('./api/pagoMovil');
 const { callSpendingAPI } = require('./api/spending');
@@ -270,7 +270,14 @@ async function processCommandQueue() {
 
             if (result.success) {
                 console.log(`Asistencia job for ${nombre} completed.`);
-                await sendTelegramMessage(chatId, currentJob.attendanceSummary || `✅ ${result.message}`, token);
+                console.log(JSON.stringify({ event: 'attendance_saved', chatId, operationId: currentJob.operationId,
+                    userId: currentJob.userId }));
+                try {
+                    await sendTelegramMessage(chatId, currentJob.attendanceSummary || `✅ ${result.message}`, token);
+                } catch (error) {
+                    console.error(JSON.stringify({ event: 'attendance_confirmation_failed', chatId,
+                        operationId: currentJob.operationId, userId: currentJob.userId, ...errorDetails(error) }));
+                }
             } else {
                 await sendTelegramMessage(chatId, `❌ Error registrando asistencia: ${result.message}`, token);
             }

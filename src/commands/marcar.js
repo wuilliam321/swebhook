@@ -2,6 +2,7 @@ const { enqueueJob, processCommandQueue } = require('../queue');
 const { sendTelegramKeyboard, removeTelegramKeyboard } = require('../api/telegram');
 const { getReminders } = require('../api/firebase');
 const { getEmployees } = require('../api/reimbursement');
+const { logEvent, errorDetails } = require('../conversations');
 
 const STORES = [
     ["Rodeo", "History"],
@@ -68,9 +69,15 @@ async function finishAsistencia(chatId, chatState, storedBotToken, chatStates) {
 
     enqueueJob(job);
     delete chatStates[chatId];
+    logEvent('attendance_queued');
 
-    await removeTelegramKeyboard(chatId, `⏳ Guardando asistencia de ${nombre}…`, storedBotToken);
-    processCommandQueue();
+    try {
+        await removeTelegramKeyboard(chatId, `⏳ Guardando asistencia de ${nombre}…`, storedBotToken);
+    } catch (error) {
+        logEvent('attendance_progress_notification_failed', errorDetails(error));
+    } finally {
+        processCommandQueue();
+    }
 }
 
 /**

@@ -10,7 +10,27 @@ const UPDATE_LIMIT = 10000;
 function logEvent(event, extra = {}) {
   const context = conversationContext.getStore();
   console.log(JSON.stringify({ event, bot: context?.bot, chatId: context?.chatId,
-    userId: context?.userId, operationId: context?.operationId, ...extra }));
+    userId: context?.userId, operationId: context?.operationId, updateId: context?.updateId, ...extra }));
+}
+
+function errorDetails(error) {
+  const cause = error.cause || error;
+  return { code: cause.code, status: cause.response?.status,
+    timeoutMs: cause.config?.timeout,
+    retryAfter: Number(cause.response?.data?.parameters?.retry_after) || undefined };
+}
+
+async function recoverConversation(session, work) {
+  const snapshot = structuredClone({ state: session.state, prompt: session.prompt, operationId: session.operationId });
+  try {
+    return await work();
+  } catch (error) {
+    const failedState = session.state?.state;
+    Object.assign(session, snapshot);
+    error.retryableUpdate = true;
+    logEvent('conversation_restored', { from: failedState, to: session.state?.state, ...errorDetails(error) });
+    throw error;
+  }
 }
 
 function sessionFor(bot, chatId, userId) {
@@ -58,14 +78,25 @@ function rememberUpdate(key, work) {
   for (const [id, entry] of updates) {
     if (entry.done && now - entry.time > UPDATE_TTL) updates.delete(id);
   }
-  if (updates.has(key)) return updates.get(key).promise;
+  if (updates.has(key)) {
+    const existing = updates.get(key);
+    logEvent('update_replayed', { updateKey: key, outcome: existing.failed ? 'failed' : existing.done ? 'completed' : 'running' });
+    return existing.promise;
+  }
   while (updates.size >= UPDATE_LIMIT) {
     const completed = [...updates].find(([, entry]) => entry.done);
     if (completed) updates.delete(completed[0]);
     else return Promise.reject(new Error('Demasiadas actualizaciones pendientes'));
   }
   const entry = { time: now, done: false };
-  entry.promise = Promise.resolve().then(work).finally(() => { entry.done = true; entry.time = Date.now(); });
+  entry.promise = Promise.resolve().then(work).catch(error => {
+    entry.failed = true;
+    if (error.retryableUpdate) {
+      updates.delete(key);
+      logEvent('update_retry_enabled', { updateKey: key, ...errorDetails(error) });
+    }
+    throw error;
+  }).finally(() => { entry.done = true; entry.time = Date.now(); });
   updates.set(key, entry);
   return entry.promise;
 }
@@ -77,4 +108,4 @@ async function serial(session, work) {
 }
 
 module.exports = { conversationContext, sessions, updates, sessionFor, stateView, newOperation,
-  promptFor, logEvent, rememberUpdate, serial };
+  promptFor, logEvent, errorDetails, recoverConversation, rememberUpdate, serial };

@@ -15,6 +15,7 @@ const {
 } = require('./api/telegram');
 const { generateRequest } = require('./api/inventory');
 
+const marcar = require('./commands/marcar');
 const commands = [
     require('./commands/pagoMovil'),
     require('./commands/cierre'),
@@ -24,7 +25,7 @@ const commands = [
     require('./commands/consultaCodigo'),
     require('./commands/deposito'),
     require('./commands/outfit'),
-    require('./commands/marcar'),
+    marcar,
     require('./commands/solicitarReembolso')
 ];
 
@@ -32,7 +33,7 @@ const app = express();
 app.use(express.json());
 
 const { BOT_TOKENS } = require('./config');
-const { conversationContext, sessionFor, stateView, newOperation, logEvent, rememberUpdate, serial } = require('./conversations');
+const { conversationContext, sessionFor, stateView, newOperation, logEvent, errorDetails, recoverConversation, rememberUpdate, serial } = require('./conversations');
 const axios = require('axios').default;
 
 async function telegramUpdate(req) {
@@ -52,8 +53,10 @@ async function telegramUpdate(req) {
         let userCommand = message.text || '';
         const stateBefore = session.state?.state;
         const context = { session, bot: token.split(':')[0], chatId: message.chat.id,
-            userId: user.id, messageId: message.message_id, operationId: session.operationId };
-        return conversationContext.run(context, async () => {
+            userId: user.id, messageId: message.message_id, operationId: session.operationId, updateId: req.body.update_id };
+        const attendance = callback || !userCommand.startsWith('/')
+            ? marcar.canHandle('', session.state) : extractBaseCommand(userCommand) === '/marcar';
+        const work = async () => {
             const notify = async text => {
                 if (callback) {
                     try {
@@ -126,7 +129,8 @@ async function telegramUpdate(req) {
                 chatStates: scopedStates, req: request });
             logEvent('update_completed', { updateId: req.body.update_id, from: stateBefore,
                 to: session.state?.state, durationMs: Date.now() - started });
-        });
+        };
+        return conversationContext.run(context, () => attendance ? recoverConversation(session, work) : work());
     });
 }
 
@@ -142,7 +146,7 @@ async function telegramWebhook(req, res) {
         res.status(200).send('OK');
     } catch (error) {
         console.error(JSON.stringify({ event: 'telegram_update_failed', updateId: req.body.update_id,
-            code: error.code, message: 'No se pudo procesar actualización' }));
+            ...errorDetails(error), retryable: Boolean(error.retryableUpdate), message: 'No se pudo procesar actualización' }));
         res.status(500).send('Processing failed');
     }
 }
