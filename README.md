@@ -87,6 +87,8 @@ WhatsApp uses Meta Graph API with `GRAPH_API_TOKEN`, `PHONE_ID` and `WEBHOOK_VER
 
   Cada reserva nueva incluye `code` (cupón), `phone` (teléfono del cliente con cero inicial), `status`, `userId` (operador de Telegram), `createdAt` (milisegundos Unix) y `operationId`. La clave del nodo sigue siendo un hash de archivo + cupón + teléfono. Los registros anteriores no reciben estos campos nuevos automáticamente.
 
+  Después de guardar el canje, la reserva pasa de `pending` a `saved`. Si el intento falla antes de iniciar la escritura, se libera la reserva. Ambas transacciones admiten una lectura local inicial `null` de Firebase y verifican que la reserva pertenezca a la misma operación; una finalización abortada se registra como `coupon_claim_finalize_failed`. Un registro antiguo que quedó `pending` pese a un canje confirmado requiere conciliación con Sheets; no se corrige automáticamente al desplegar.
+
   Para liberar manualmente un bloqueo pendiente:
 
   1. Espera a que termine el intento original; no liberes una reserva mientras pueda seguir escribiendo en Sheets.

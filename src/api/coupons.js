@@ -72,7 +72,11 @@ async function redeemCoupon(expected, userId) {
       if (!saved) throw new CouponError('No se pudo confirmar el canje. Quedó bloqueado para evitar un doble uso; revisa la planilla.');
     }
     try {
-      await ref.transaction(value => value?.operationId === operationId ? { ...value, status: 'saved' } : undefined);
+      const finalized = await ref.transaction(value => value === null ? null
+        : value.operationId === operationId ? { ...value, status: 'saved' } : undefined);
+      if (!finalized.committed || finalized.snapshot.val()?.status !== 'saved') {
+        throw new Error('No se confirmó el estado final de la reserva.');
+      }
     } catch (error) {
       logEvent('coupon_claim_finalize_failed', errorDetails(error));
     }
@@ -85,7 +89,8 @@ async function redeemCoupon(expected, userId) {
   } finally {
     if (!writeStarted) {
       try {
-        await ref.transaction(value => value?.operationId === operationId ? null : undefined);
+        const released = await ref.transaction(value => value === null || value.operationId === operationId ? null : undefined);
+        if (!released.committed) logEvent('coupon_claim_release_skipped', { reason: 'reservation_changed' });
       } catch (error) {
         logEvent('coupon_claim_release_failed', errorDetails(error));
       }

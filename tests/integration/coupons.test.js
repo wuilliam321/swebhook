@@ -64,7 +64,7 @@ test('flujo completo con código y teléfono normalizados, teclado y resumen', a
   expect(redeemCoupon).toHaveBeenCalledWith(coupon, 1);
   expect(session().state).toBeUndefined();
   expect(sent.at(-1).text).toContain('usado correctamente');
-  expect(sent.at(-1).text).toContain('Autorizado por: 1');
+  expect(sent.at(-1).text).not.toContain('Autorizado por');
   expect(sent.at(-1).reply_markup).toEqual({ remove_keyboard: true });
 });
 

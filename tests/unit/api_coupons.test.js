@@ -16,10 +16,13 @@ beforeEach(() => {
   rows = [headers, ['', 'SDB-OCT26', 'PORCENTAJE', 8, '04165028307', 'NO', '', '28/12/2026', '']];
   claims = new Map(); writeMode = 'success';
   initializeFirebase.mockReturnValue({ ref: key => ({ transaction: async update => {
-    const next = update(claims.get(key) || null);
+    const initial = update(null);
+    if (initial === undefined) return { committed: false };
+    const current = claims.get(key) || null;
+    const next = current === null ? initial : update(current);
     if (next === undefined) return { committed: false };
     if (next === null) claims.delete(key); else claims.set(key, next);
-    return { committed: true };
+    return { committed: true, snapshot: { val: () => next } };
   } }) });
   axios.get.mockImplementation(async url => ({ data: url.includes('/values/') ? { values: structuredClone(rows) }
     : { sheets: [{ properties: { title: 'Cupones', sheetId: 1793037417 } }] } }));
@@ -131,5 +134,29 @@ test('resultado incierto queda bloqueado sin reenvío automático', async () => 
 test('no escribe sin protección distribuida', async () => {
   const expected = await lookup(); initializeFirebase.mockReturnValue(null);
   await expect(redeemCoupon(expected, 123)).rejects.toThrow('doble canje');
+  expect(axios.post).not.toHaveBeenCalled();
+});
+
+test('finalización no sobrescribe reserva de otra operación', async () => {
+  const expected = await lookup();
+  const write = axios.post.getMockImplementation();
+  axios.post.mockImplementation(async (...args) => {
+    const result = await write(...args);
+    for (const claim of claims.values()) claim.operationId = 'other-operation';
+    return result;
+  });
+  await redeemCoupon(expected, 123);
+  expect(rows[1][5]).toBe('SI');
+  expect([...claims.values()][0]).toMatchObject({ operationId: 'other-operation', status: 'pending' });
+});
+
+test('liberación no elimina reserva de otra operación', async () => {
+  const expected = await lookup();
+  axios.get.mockImplementation(async () => {
+    for (const claim of claims.values()) claim.operationId = 'other-operation';
+    throw new Error('timeout');
+  });
+  await expect(redeemCoupon(expected, 123)).rejects.toThrow('timeout');
+  expect([...claims.values()][0]).toMatchObject({ operationId: 'other-operation', status: 'pending' });
   expect(axios.post).not.toHaveBeenCalled();
 });

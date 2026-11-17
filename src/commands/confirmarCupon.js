@@ -35,13 +35,13 @@ module.exports = {
         return;
       }
       chatStates[chatId] = { state: 'COUPON_PHONE', code };
-      await sendTelegramMessage(chatId, 'Introduce el teléfono donde llegó el cupón, incluyendo 0416, 0412, etc. Ejemplo: 04165028307.\n/cancelar para salir.', botToken);
+      await sendTelegramMessage(chatId, 'Introduce el teléfono donde llegó el cupón, incluyendo el prefijo. Ejemplo: 04240001122.\n/cancelar para salir.', botToken);
       return;
     }
     if (state.state === 'COUPON_PHONE') {
       const phone = normalizePhone(req.body.message?.text);
       if (!phone) {
-        await sendTelegramMessage(chatId, 'Teléfono inválido. Usa 11 dígitos, por ejemplo 04165028307, o +58 416 502 8307.\n/cancelar para salir.', botToken);
+        await sendTelegramMessage(chatId, 'Teléfono inválido. Usa 11 dígitos, por ejemplo 04240001122, o +58 424 000 1122.\n/cancelar para salir.', botToken);
         return;
       }
       let coupon;
@@ -77,7 +77,7 @@ module.exports = {
       }
       delete chatStates[chatId];
       await removeTelegramKeyboard(chatId,
-        `✅ Cupón usado correctamente.\n${couponSummary(result.coupon)}\nFecha de uso: ${result.usedAt}\nAutorizado por: ${result.userId}`, botToken);
+        `✅ Cupón usado correctamente.\n${couponSummary(result.coupon)}\nFecha de uso: ${result.usedAt}`, botToken);
     }
   }
 };
