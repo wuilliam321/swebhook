@@ -122,6 +122,7 @@ async function getReminders() {
 }
 
 module.exports = {
+    initializeFirebase,
     getEmployeesByRole,
     getReminders
 };

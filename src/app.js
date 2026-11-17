@@ -16,7 +16,9 @@ const {
 const { generateRequest } = require('./api/inventory');
 
 const marcar = require('./commands/marcar');
+const confirmarCupon = require('./commands/confirmarCupon');
 const commands = [
+    confirmarCupon,
     require('./commands/pagoMovil'),
     require('./commands/cierre'),
     require('./commands/casheaAbonos'),
@@ -82,7 +84,7 @@ async function telegramUpdate(req) {
                 if (!callback.data?.startsWith('flow:') || !prompt || prompt.id !== promptId ||
                     prompt.messageId !== message.message_id || !Number.isInteger(index) || !prompt.values?.[index]) {
                     logEvent('input_rejected', { reason: 'foreign_or_stale_button' });
-                    await notify('Este botón ya no está disponible para ti. Escribe /marcar para empezar de nuevo.');
+                    await notify('Este botón ya no está disponible para ti. Inicia de nuevo el comando que necesitas.');
                     return;
                 }
                 userCommand = prompt.values[index];
@@ -97,7 +99,8 @@ async function telegramUpdate(req) {
                 return;
             }
             const baseCommand = extractBaseCommand(userCommand);
-            const handler = isCommand ? commands.find(command => command.canHandle(baseCommand, undefined)) :
+            const cancellingCoupon = baseCommand === '/cancelar' && confirmarCupon.canHandle('', session.state);
+            const handler = cancellingCoupon ? confirmarCupon : isCommand ? commands.find(command => command.canHandle(baseCommand, undefined)) :
                 commands.find(command => command.canHandle(baseCommand, session.state));
             if (!handler) {
                 logEvent('input_rejected', { reason: 'no_matching_flow' });

@@ -79,6 +79,12 @@ WhatsApp uses Meta Graph API with `GRAPH_API_TOKEN`, `PHONE_ID` and `WEBHOOK_VER
 
 ### Telegram Commands
 
+- `/confirmar_cupon` - Canjear un cupón de `Cupones` mediante código y teléfono venezolano. Acepta el código con o sin `SDB-`, muestra el descuento (porcentaje o USD) y exige confirmación mediante botón. `/cancelar` termina el flujo en cualquier paso.
+
+  Usa `COUPONS_SPREADSHEET_ID`, opcional, con valor predeterminado `14emKnCtKU3emEEo1Vpdjyubvqw415JejY6fNK5uSIVk`; comparte el archivo con la cuenta de servicio de Google Sheets existente. Requiere encabezados exactos en A:I: `FECHA_CREACION`, `CUPON`, `TIPO`, `VALOR`, `CLIENTE`, `USADO`, `FECHA_USO`, `FECHA_VENCIMIENTO`, `AUTORIZADO_POR`. El teléfono en E debe conservar el cero inicial como texto. La combinación código + teléfono debe ser única; un código puede pertenecer a distintos teléfonos. El vencimiento es inclusivo y la zona horaria del canje es siempre `America/Caracas`.
+
+  Actualiza únicamente F (`SI`), G (fecha y hora) e I (ID de Telegram). La instancia de Firebase existente mantiene reservas persistentes en `7db-adm/couponRedemptions` para impedir canjes simultáneos entre procesos. Ante una escritura incierta, verifica la planilla y conserva la reserva si no puede confirmar el resultado. Una reserva pendiente después de un fallo requiere revisión manual de Sheets y Firebase antes de liberarse; reiniciar el contenedor no la elimina. No debe restaurarse un cupón usado borrando solo F:G e I. Las reservas coordinan las instancias del bot; no bloquean ediciones manuales concurrentes de Sheets. El control global de usuarios autorizados queda pendiente por decisión del usuario.
+
 - `/gasto` - Record an expense
   - Usage: Type `/gasto` then follow the prompts
   - Supports:
