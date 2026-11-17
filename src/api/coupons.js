@@ -34,7 +34,8 @@ async function redeemCoupon(expected, userId) {
   const ref = database.ref(`7db-adm/couponRedemptions/${key}`);
   const operationId = randomUUID();
   const claim = await ref.transaction(current => current === null
-    ? { operationId, status: 'pending', userId: String(userId), createdAt: Date.now() }
+    ? { operationId, code: expected.code, phone: expected.phone,
+      status: 'pending', userId: String(userId), createdAt: Date.now() }
     : undefined);
   if (!claim.committed) throw new CouponError('Este cupón ya tiene un canje registrado o pendiente de verificación. No lo repitas.');
 

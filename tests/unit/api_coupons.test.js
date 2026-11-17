@@ -51,6 +51,7 @@ test('escribe solo F:G e I y registra fecha venezolana e ID', async () => {
   expect(rows[1].slice(0, 5)).toEqual(['', 'SDB-OCT26', 'PORCENTAJE', 8, '04165028307']);
   expect(axios.post).toHaveBeenCalledTimes(1);
   expect([...claims.values()][0].status).toBe('saved');
+  expect([...claims.values()][0]).toMatchObject({ code: 'SDB-OCT26', phone: '04165028307', userId: '123' });
 });
 
 test('dos canjes simultáneos, una sola escritura compartida', async () => {
@@ -124,6 +125,7 @@ test('resultado incierto queda bloqueado sin reenvío automático', async () => 
   await expect(redeemCoupon(expected, 456)).rejects.toThrow('pendiente');
   expect(axios.post).toHaveBeenCalledTimes(1);
   expect([...claims.values()][0].status).toBe('pending');
+  expect([...claims.values()][0]).toMatchObject({ code: 'SDB-OCT26', phone: '04165028307', userId: '123' });
 });
 
 test('no escribe sin protección distribuida', async () => {

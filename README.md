@@ -85,6 +85,16 @@ WhatsApp uses Meta Graph API with `GRAPH_API_TOKEN`, `PHONE_ID` and `WEBHOOK_VER
 
   Actualiza únicamente F (`SI`), G (fecha y hora) e I (ID de Telegram). La instancia de Firebase existente mantiene reservas persistentes en `7db-adm/couponRedemptions` para impedir canjes simultáneos entre procesos. Ante una escritura incierta, verifica la planilla y conserva la reserva si no puede confirmar el resultado. Una reserva pendiente después de un fallo requiere revisión manual de Sheets y Firebase antes de liberarse; reiniciar el contenedor no la elimina. No debe restaurarse un cupón usado borrando solo F:G e I. Las reservas coordinan las instancias del bot; no bloquean ediciones manuales concurrentes de Sheets. El control global de usuarios autorizados queda pendiente por decisión del usuario.
 
+  Cada reserva nueva incluye `code` (cupón), `phone` (teléfono del cliente con cero inicial), `status`, `userId` (operador de Telegram), `createdAt` (milisegundos Unix) y `operationId`. La clave del nodo sigue siendo un hash de archivo + cupón + teléfono. Los registros anteriores no reciben estos campos nuevos automáticamente.
+
+  Para liberar manualmente un bloqueo pendiente:
+
+  1. Espera a que termine el intento original; no liberes una reserva mientras pueda seguir escribiendo en Sheets.
+  2. En Firebase Realtime Database, abre `7db-adm/couponRedemptions` y localiza el nodo por `code` y `phone`.
+  3. Comprueba que tenga `status = pending` y que la pareja exacta en `Cupones` sea única, con F `NO`, G vacía e I vacía. Si figura como usado, tiene auditoría, está duplicado o el resultado sigue siendo incierto, no lo liberes.
+  4. Guarda una copia del registro y elimina únicamente ese nodo hijo completo, identificado por su hash. No elimines `couponRedemptions`, ni cambies solo `status`; cualquier reserva existente bloquea el canje.
+  5. Inicia de nuevo `/confirmar_cupon`. El bot volverá a validar los datos antes de permitir el canje.
+
 - `/gasto` - Record an expense
   - Usage: Type `/gasto` then follow the prompts
   - Supports:
